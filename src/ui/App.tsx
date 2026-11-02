@@ -3,6 +3,7 @@ import type { Asset } from "../core/types";
 import { newId } from "../core/id";
 import { lowerThirdProject } from "../core/samples";
 import { saveProject, uploadAsset, openProject } from "./api";
+import { startBridge } from "./bridge-client";
 import { Inspector } from "./Inspector";
 import { ClaudePanel, Dialogs } from "./Panels";
 import { activeComp, editor, getUI, newBlankProject, run, setTime, setUI, toast, useEditorRevision, useProject, useUI, type Tool } from "./state";
@@ -93,6 +94,7 @@ export function App() {
       /* ignore */
     }
     if (last) openProject(last).catch(() => undefined);
+    startBridge();
   }, []);
 
   // Playback: real-time, frame-snapped, loops.

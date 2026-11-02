@@ -44,6 +44,19 @@ DaVinci Resolve over a coloured clip and check the edges.
 - Export › Resolve-ready preset writes ProRes 4444 with alpha to `renders/`.
   In Resolve, set Clip Attributes › Alpha Mode to Straight if edges look dark.
 
+## Let Claude edit the project
+
+```
+npm run mcp:setup     # once: registers the server with Claude Code and the Claude app
+npm run dev           # keep the editor open while Claude works
+```
+
+Then ask, for example, "Using motion-graphics, build a lower third with my
+name and ease it in over 12 frames". Claude's edits appear live and wait in
+the Claude panel: hold "before" to compare, then Keep or Reject. Stop blocks
+Claude until you press Resume, and exports Claude asks for need your approval.
+Restart the Claude app after setup.
+
 Command line export: `npm run export -- projects/<name>/project.json --resolve`
 (add `--engine hyperframes` to render with HyperFrames).
 

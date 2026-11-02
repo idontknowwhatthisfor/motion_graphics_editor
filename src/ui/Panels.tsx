@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { COMP_PRESETS, FPS_PRESETS } from "../core/factory";
 import type { Project } from "../core/types";
 import { cancelExport, exportStatus, listProjects, listVersions, loadVersion, openProject, saveProject, startExport, type ExportRequest } from "./api";
+import { answerExportRequest, resumeClaude, stopClaude } from "./bridge-client";
 import { activeComp, editor, findLayer, run, setUI, toast, useEditorRevision, useProject, useUI } from "./state";
 
 // ---------- Claude: change sets, status, audit (CL-06, CL-07) ----------
@@ -9,13 +10,30 @@ export function ClaudePanel() {
   useEditorRevision();
   const project = useProject();
   const previewBefore = useUI((s) => s.previewBefore);
+  const claude = useUI((s) => s.claude);
   const pending = editor.pendingChangeSets;
+  const connected = claude.bridge === "up" && claude.agents > 0;
+  const statusText = claude.bridge !== "up" ? "bridge offline" : connected ? "connected" : "not connected";
   return (
     <div className="claude-panel" data-testid="claude-panel">
       <div className="section-head static">
         <span>Claude</span>
-        <span className="status off" title="The local MCP server is the next milestone step">● not connected</span>
+        <span className={`status ${connected ? "on" : "off"}`} data-testid="claude-status" title={connected ? "An MCP client is connected" : "Run `npm run mcp:setup` once, then ask Claude Code or the Claude app to use the motion-graphics tools"}>
+          ● {statusText}
+        </span>
       </div>
+      {(claude.action || claude.stopped || editor.openChangeSet) && (
+        <div className="prow claude-activity">
+          <span className="plabel">{claude.stopped ? "Stopped" : claude.action ? "Working" : "Idle"}</span>
+          <span className="small">{claude.stopped ? "Claude's edits are blocked" : (claude.action ?? "").replace(/_/g, " ")}</span>
+          <span className="spacer" />
+          {claude.stopped ? (
+            <button onClick={resumeClaude}>Resume</button>
+          ) : (
+            <button className="danger" onClick={stopClaude} data-testid="claude-stop">Stop</button>
+          )}
+        </div>
+      )}
       <div className="prow">
         <span className="plabel">Permission</span>
         <select value={project.settings.permissionMode} onChange={(e) => run({ type: "project.setPermissionMode", mode: e.target.value as "ask" })}>
@@ -266,8 +284,30 @@ function AuditDialog() {
   );
 }
 
+function ExportApproval() {
+  const req = useUI((s) => s.exportRequest)!;
+  const comp = activeComp(useProject());
+  const fmt = { prores4444: "ProRes 4444 with alpha (.mov)", mp4: "MP4 H.264", png: "PNG sequence" }[req.format] ?? req.format;
+  return (
+    <Modal title="Claude wants to export" onClose={() => answerExportRequest(false)}>
+      <div className="form" data-testid="export-approval">
+        <div>
+          {comp.name}: {fmt}, {req.fps ?? comp.fps} fps, {req.width ?? comp.width} px wide.
+        </div>
+        <div className="small muted">The file is written to the renders folder. Saving the project happens first.</div>
+      </div>
+      <div className="modal-foot">
+        <button onClick={() => answerExportRequest(false)}>Deny</button>
+        <button className="primary" onClick={() => answerExportRequest(true)}>Allow export</button>
+      </div>
+    </Modal>
+  );
+}
+
 export function Dialogs() {
   const dialog = useUI((s) => s.dialog);
+  const exportRequest = useUI((s) => s.exportRequest);
+  if (exportRequest) return <ExportApproval />;
   if (dialog === "comp") return <CompForm isNew={false} />;
   if (dialog === "newComp") return <CompForm isNew />;
   if (dialog === "export") return <ExportDialog />;

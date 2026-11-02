@@ -9,7 +9,7 @@ proven with the checks below.
 
 ```
 UI (React, src/ui) ──┐
-MCP server (next) ───┼─> Command API (src/core/commands.ts) ─> Editor (src/core/editor.ts)
+MCP server (mcp/) ───┼─> Command API (src/core/commands.ts) ─> Editor (src/core/editor.ts)
 scripts/tests ───────┘        plain-JSON commands                undo/redo, change sets, audit log
                                                                    │
                      JSON project (src/core/types.ts) <────────────┘
@@ -57,6 +57,32 @@ scripts/tests ───────┘        plain-JSON commands               
   every 2 min in `versions/`, imported media in `assets/`, export jobs with
   progress and cancel.
 
+## Claude connection (MCP)
+
+```
+Claude Code / Claude app ──stdio──> mcp/server.ts ──ws agent──> bridge (scripts/bridge.ts, in the Vite dev server)
+                                                                 ──ws editor──> browser tab (src/ui/bridge-client.ts)
+                                                                                   └─> Editor.dispatch(source "claude")
+```
+
+- `mcp/tools.ts`: the 25 tools (inspect, look, change sets, build, arrange,
+  batch, deliver) + 4 resources + server instructions. Tools only use an
+  `EditorPort` (`mcp/port.ts`): `LocalPort` in tests, `BridgePort` for real.
+- The bridge token is regenerated on every `npm run dev` and written to
+  `.cache/bridge.json` (mode 600). The editor gets it same-origin from
+  `/api/bridge-info`; `/api` and `/projects` refuse non-localhost Host headers.
+- `render_frame` / `render_contact_sheet` (`mcp/frames.ts`) compile the
+  project and screenshot it in a warm headless Chrome that closes after 2
+  idle minutes (memory on the 8 GB Mac).
+- Exports from Claude wait for an approval dialog in the editor. Stop in the
+  Claude panel finishes the open change set and refuses Claude edits until
+  Resume. Claude can never change the permission mode or add assets.
+- Protocol: SDK 1.32.1, protocol 2025-11-25 (newest the SDK supports). The
+  PRD names 2026-07-28; upgrade the SDK when Claude apps require it. All
+  protocol code is in `mcp/server.ts` + the SDK.
+- `npm run mcp:setup` registers the server with Claude Code (user scope) and
+  the Claude desktop app config (backs it up first).
+
 ## Checks to run before every commit
 
 ```
@@ -64,6 +90,7 @@ npm run build:runtime   # after touching src/core, src/render or src/compiler
 npm run typecheck
 npm test                # Vitest: easing, interpolation, commands, undo, change sets, compiler
 npm run e2e             # Playwright drives the real editor; screenshots in renders/e2e/
+npm run e2e:mcp         # real stdio MCP server + bridge + editor: edits, review, stop, approved export
 npm run engine-test     # slow (~3 min): ProRes 4444 alpha renders + ffprobe + keyframe edit check
 ```
 
@@ -82,15 +109,18 @@ timeline with scrub/trim/split/snapping/markers/keyframe drag, graph editor,
 inspector, comp settings with resize modes, import SVG/PNG/JPG + reference
 video, autosave + version history, export dialog with Resolve preset).
 
+Also done: local MCP server, bridge, setup command, connection status,
+current action, Stop, change-set review, export approval (CL-01..CL-08).
+
 Next, in PRD order:
-1. Local MCP server (stdio, official TS SDK) + setup command (CL-01..CL-08):
-   the browser editor connects to the dev server over a local WebSocket with a
-   per-session token; MCP tools send commands with `source: "claude"`.
-   `render_frame` uses `seekAndShoot` from `scripts/lib/node-export.ts`.
+1. Resolve-ready export polish and Gate 1 (kp finishes a 15 s overlay by hand).
 2. Mask path and gradient handles in the viewer; local font list.
-3. Frame cache for half-res playback if live SVG playback is too slow on the
+3. P1 Claude items: MCP elicitation for missing input (CL-10), prompts such
+   as Make variants / Retime to audio (CL-11), a bundled skill (CL-12),
+   export progress notifications (CL-09).
+4. Frame cache for half-res playback if live SVG playback is too slow on the
    M1 with 30 layers (measure first).
-4. Gate 1 (kp): finish a 15 s overlay by hand and place it in Resolve.
+
 
 ## Conventions
 

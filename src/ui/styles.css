@@ -164,3 +164,5 @@ textarea { width: 100%; resize: vertical; }
 .src-claude { color: var(--accent); }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #111827; border: 1px solid var(--line); padding: 8px 14px; border-radius: 6px; z-index: 60; }
 .toast.error { border-color: var(--danger); color: #fecaca; }
+button.danger { border-color: var(--danger); color: #fecaca; }
+.claude-activity { padding: 4px 10px; background: #2a1f14; }

@@ -44,6 +44,10 @@ export interface UIState {
   saveState: "saved" | "saving" | "dirty" | "offline";
   showReference: boolean;
   timelineZoom: number; // px per second
+  /** Claude connection (CL-07). */
+  claude: { agents: number; bridge: "connecting" | "up" | "down"; action: string | null; stopped: boolean };
+  /** Claude asked to export; waiting for my approval. */
+  exportRequest: { format: string; fps?: number; width?: number } | null;
 }
 
 let ui: UIState = {
@@ -61,6 +65,8 @@ let ui: UIState = {
   saveState: "dirty",
   showReference: true,
   timelineZoom: 120,
+  claude: { agents: 0, bridge: "connecting", action: null, stopped: false },
+  exportRequest: null,
 };
 const uiListeners = new Set<() => void>();
 export function getUI() {

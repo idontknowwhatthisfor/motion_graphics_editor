@@ -17,19 +17,25 @@
     "e2e": "tsx scripts/e2e-smoke.ts",
     "compile": "tsx scripts/compile.ts",
     "export": "tsx scripts/export.ts",
-    "engine-test": "tsx scripts/engine-test.ts"
+    "engine-test": "tsx scripts/engine-test.ts",
+    "mcp": "tsx mcp/server.ts",
+    "mcp:setup": "tsx scripts/mcp-setup.ts",
+    "e2e:mcp": "tsx scripts/e2e-mcp.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "gsap": "^3.12.5",
     "immer": "^10.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "zod": "^3.23.8"
+    "ws": "^8.18.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
+    "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.3",
     "esbuild": "^0.24.0",
     "playwright": "^1.48.2",

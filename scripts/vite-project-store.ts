@@ -13,6 +13,7 @@ import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, ren
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, extname, join, resolve } from "node:path";
 import type { Plugin, ViteDevServer } from "vite";
+import { attachBridge } from "./bridge";
 
 const ROOT = process.cwd();
 const PROJECTS = join(ROOT, "projects");
@@ -67,10 +68,16 @@ export function projectStorePlugin(): Plugin {
     name: "mge-project-store",
     configureServer(server: ViteDevServer) {
       mkdirSync(PROJECTS, { recursive: true });
+      const bridge = server.httpServer ? attachBridge(server.httpServer as never, ROOT) : null;
       server.middlewares.use(async (req, res, next) => {
         const url = new URL(req.url ?? "/", "http://localhost");
         const path = url.pathname;
+        // Refuse requests addressed to any other host name (DNS-rebinding guard).
+        const hostname = (req.headers.host ?? "").replace(/:\d+$/, "");
+        if ((path.startsWith("/api/") || path.startsWith("/projects/")) && !["127.0.0.1", "localhost"].includes(hostname))
+          return json(res, 403, { error: "local access only" });
         try {
+          if (path === "/api/bridge-info" && req.method === "GET") return json(res, 200, { token: bridge?.token ?? null });
           // Static media from project folders.
           if (path.startsWith("/projects/") && req.method === "GET") {
             const file = resolve(ROOT, "." + decodeURIComponent(path));

@@ -43,6 +43,7 @@ export type Command =
   | { type: "comp.create"; comp?: Partial<Omit<Composition, "layers" | "markers">>; activate?: boolean }
   | ({ type: "comp.update"; name?: string; fps?: number; duration?: number; background?: string | null } & CompRef)
   | ({ type: "comp.resize"; width: number; height: number; mode: "scaleToFit" | "keepLayout" } & CompRef)
+  | ({ type: "comp.duplicate"; name?: string; newId?: string; activate?: boolean } & CompRef)
   | ({ type: "comp.delete" } & CompRef)
   | { type: "comp.setActive"; compId: string }
   | ({ type: "layer.add"; layerType?: LayerType; opts?: MakeLayerOpts; layer?: Layer; index?: number } & CompRef)
@@ -274,6 +275,22 @@ export function applyCommand(p: Project, cmd: Command): unknown {
       c.width = Math.round(W);
       c.height = Math.round(H);
       return;
+    }
+    case "comp.duplicate": {
+      const src = getComp(p, cmd.compId);
+      const copy = cloneWithNewIds(src);
+      // Layer ids change, so re-point parents and mattes at the copies.
+      const idMap = new Map(src.layers.map((l, i) => [l.id, copy.layers[i].id]));
+      for (const l of copy.layers) {
+        if (l.parentId) l.parentId = idMap.get(l.parentId) ?? null;
+        if (l.matte) l.matte = { ...l.matte, layerId: idMap.get(l.matte.layerId) ?? l.matte.layerId };
+      }
+      copy.id = cmd.newId ?? newId("comp");
+      if (p.compositions.some((c) => c.id === copy.id)) throw new CommandError("Composition id exists");
+      copy.name = cmd.name ?? `${src.name} copy`;
+      p.compositions.push(copy);
+      if (cmd.activate) p.activeCompId = copy.id;
+      return { compId: copy.id };
     }
     case "comp.delete": {
       if (p.compositions.length <= 1) throw new CommandError("A project needs at least one composition");
