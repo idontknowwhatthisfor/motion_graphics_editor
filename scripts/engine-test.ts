@@ -13,7 +13,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Editor } from "../src/core/editor";
 import { engineTestProject } from "../src/core/samples";
-import { exportDirect, launchBrowser, openComposition, probe, ROOT, writeHyperFramesProject, seekAndShoot } from "./lib/node-export";
+import { chromePath, exportDirect, hyperframesEnv, launchBrowser, openComposition, probe, ROOT, writeHyperFramesProject, seekAndShoot } from "./lib/node-export";
 import { mb, measureSelf, runMeasured } from "./lib/measure";
 
 const HYPERFRAMES_VERSION = "0.9.4"; // pinned (PRD risk: engine changes quickly)
@@ -23,6 +23,7 @@ const skipHF = process.argv.includes("--skip-hyperframes");
 const lines: string[] = [`# Engine test report`, ``, `Run: ${new Date().toISOString()} on ${process.platform}/${process.arch}`, ``];
 const log = (s: string) => (console.log(s), lines.push(s));
 
+log(`Browser for every render: ${chromePath()}`);
 const project = engineTestProject();
 const hfDir = join(outDir, "hyperframes-project");
 writeHyperFramesProject(project, ROOT, hfDir);
@@ -46,7 +47,7 @@ async function check(label: string, file: string, ms: number, peak: number) {
 if (!skipHF) {
   const file = join(outDir, "hyperframes.mov");
   log(`\nRendering with HyperFrames ${HYPERFRAMES_VERSION} (first run downloads it)...`);
-  const r = await runMeasured("npx", ["--yes", `hyperframes@${HYPERFRAMES_VERSION}`, "render", "--format", "mov", "--quality", "delivery", "-o", file], { cwd: hfDir });
+  const r = await runMeasured("npx", ["--yes", `hyperframes@${HYPERFRAMES_VERSION}`, "render", "--format", "mov", "--quality", "delivery", "-o", file], { cwd: hfDir, env: hyperframesEnv() });
   if (r.code !== 0) log(`\n## HyperFrames: FAIL (exit ${r.code})\n\n\`\`\`\n${r.output.slice(-3000)}\n\`\`\``);
   else await check("HyperFrames ProRes 4444", file, r.ms, r.peakBytes);
 }

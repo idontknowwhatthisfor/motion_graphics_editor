@@ -94,8 +94,11 @@ npm run e2e:mcp         # real stdio MCP server + bridge + editor: edits, review
 npm run engine-test     # slow (~3 min): ProRes 4444 alpha renders + ffprobe + keyframe edit check
 ```
 
-In the cloud container use `MGE_CHROMIUM=/opt/pw-browsers/chromium` (auto-
-detected). On the Mac run `npx playwright install chromium` once.
+Browser: always Google Chrome via `chromePath()` in
+`scripts/lib/node-export.ts` (Playwright gets it as executablePath, HyperFrames
+via HYPERFRAMES_BROWSER_PATH). kp chose Chrome over Chromium; do not add
+Chromium downloads. The cloud container has no Chrome and falls back to
+/opt/pw-browsers/chromium there only.
 
 ## Status (Milestone 1, browser window)
 

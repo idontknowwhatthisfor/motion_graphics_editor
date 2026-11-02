@@ -11,7 +11,7 @@ import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseProject } from "../src/core/project-io";
 import { spawnSync } from "node:child_process";
-import { exportDirect, probe, ROOT, writeHyperFramesProject, type ExportFormat } from "./lib/node-export";
+import { exportDirect, hyperframesEnv, probe, ROOT, writeHyperFramesProject, type ExportFormat } from "./lib/node-export";
 
 export const HYPERFRAMES_VERSION = "0.9.4";
 
@@ -35,7 +35,7 @@ if (opt("engine") === "hyperframes") {
   const hfFormat = format === "mp4" ? "mp4" : format === "png" ? "png-sequence" : "mov";
   const args = ["--yes", `hyperframes@${HYPERFRAMES_VERSION}`, "render", "--format", hfFormat, "--quality", "delivery", "-o", out];
   if (opt("fps")) args.push("--fps", opt("fps")!);
-  const r = spawnSync("npx", args, { cwd: dir, stdio: "inherit" });
+  const r = spawnSync("npx", args, { cwd: dir, stdio: "inherit", env: hyperframesEnv() });
   if (r.status !== 0) process.exit(r.status ?? 1);
   if (format !== "png") console.log(await probe(out));
   process.exit(0);

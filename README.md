@@ -6,9 +6,10 @@ transparent overlays (ProRes 4444 with alpha) for DaVinci Resolve.
 
 ## Run it on the Mac
 
-Needs Node 22+, FFmpeg (`brew install node ffmpeg`) and Google Chrome (used
-headless for export and tests). Without Chrome, run `npx playwright install chromium`
-once, or point `MGE_CHROMIUM` at any Chromium-based browser binary.
+Needs Node 22+, FFmpeg (`brew install node ffmpeg`) and Google Chrome in
+/Applications. Chrome (headless) does every render: preview checks, exports,
+tests and HyperFrames. No Chromium download is needed; to use a different
+Chrome binary set `MGE_CHROME`.
 
 ```
 cd ~/Desktop/motion_graphics

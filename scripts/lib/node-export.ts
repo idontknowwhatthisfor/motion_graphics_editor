@@ -41,20 +41,38 @@ export function writeHyperFramesProject(project: Project, projectDir: string, ou
   return compiled;
 }
 
+export const MAC_CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+
+/**
+ * The browser used for export, frame checks, tests AND HyperFrames: Google
+ * Chrome, never a downloaded Chromium. Override with MGE_CHROME (any Chrome
+ * binary). /opt/pw-browsers/chromium is only used in the cloud build
+ * container, which has no Chrome.
+ */
+export function chromePath(): string {
+  const p = process.env.MGE_CHROME || process.env.MGE_CHROMIUM;
+  if (p) {
+    if (!existsSync(p)) throw new Error(`MGE_CHROME points to a missing file: ${p}`);
+    return p;
+  }
+  if (process.platform === "darwin") {
+    if (existsSync(MAC_CHROME)) return MAC_CHROME;
+    const user = join(process.env.HOME ?? "", MAC_CHROME);
+    if (existsSync(user)) return user;
+    throw new Error("Google Chrome was not found in /Applications. Install it from google.com/chrome, or set MGE_CHROME to its binary.");
+  }
+  for (const c of ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/opt/google/chrome/chrome", "/opt/pw-browsers/chromium"]) if (existsSync(c)) return c;
+  throw new Error("Google Chrome was not found. Set MGE_CHROME to its binary.");
+}
+
+/** Environment that makes the HyperFrames CLI use the same Chrome. */
+export function hyperframesEnv(): NodeJS.ProcessEnv {
+  return { ...process.env, HYPERFRAMES_BROWSER_PATH: chromePath() };
+}
+
 export async function launchBrowser(): Promise<Browser> {
   const { chromium } = await import("playwright");
-  // Prefer an explicit path, then a browser already on the machine, so the
-  // ~150 MB `npx playwright install chromium` download is optional.
-  const candidates = [
-    process.env.MGE_CHROMIUM,
-    "/opt/pw-browsers/chromium",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-  ];
-  const executablePath = candidates.find((p) => p && existsSync(p));
-  return chromium.launch({ executablePath, args: ["--disable-gpu-vsync", "--font-render-hinting=none"] });
+  return chromium.launch({ executablePath: chromePath(), args: ["--disable-gpu-vsync", "--font-render-hinting=none"] });
 }
 
 export async function openComposition(browser: Browser, htmlDir: string, width: number, height: number, scale = 1): Promise<Page> {
