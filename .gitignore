@@ -1,0 +1,9 @@
+node_modules/
+dist/
+renders/
+.cache/
+projects/*/autosave/
+.hyperframes/
+*.log
+.DS_Store
+src/compiler/runtime.generated.js

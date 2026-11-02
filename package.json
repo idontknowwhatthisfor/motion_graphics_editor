@@ -1,0 +1,41 @@
+{
+  "name": "motion-graphics-editor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal motion graphics editor with a Claude (MCP) integration. See CLAUDE.md.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "npm run build:runtime && tsc -p tsconfig.json --noEmit && vite build",
+    "build:runtime": "tsx scripts/build-runtime.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "e2e": "tsx scripts/e2e-smoke.ts",
+    "compile": "tsx scripts/compile.ts",
+    "export": "tsx scripts/export.ts",
+    "engine-test": "tsx scripts/engine-test.ts"
+  },
+  "dependencies": {
+    "gsap": "^3.12.5",
+    "immer": "^10.1.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "esbuild": "^0.24.0",
+    "playwright": "^1.48.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4"
+  }
+}

@@ -1,0 +1,101 @@
+/** Talks to the local project store (scripts/vite-project-store.ts). */
+import { parseProject, serializeProject } from "../core/project-io";
+import type { Asset, Project } from "../core/types";
+import { editor, getUI, setUI, toast } from "./state";
+
+export function assetUrl(a: Asset): string {
+  if (a.src.startsWith("data:") || a.src.startsWith("blob:") || a.src.startsWith("http")) return a.src;
+  return `/projects/${encodeURIComponent(getUI().projectName)}/${a.src}`;
+}
+
+export async function listProjects(): Promise<{ name: string; modified: number }[]> {
+  const r = await fetch("/api/projects");
+  return r.ok ? r.json() : [];
+}
+
+export async function saveProject(opts: { version?: boolean } = {}): Promise<boolean> {
+  const name = getUI().projectName;
+  setUI({ saveState: "saving" });
+  const rev = editor.revision;
+  try {
+    const r = await fetch(`/api/project?name=${encodeURIComponent(name)}${opts.version ? "&version=1" : ""}`, {
+      method: "PUT",
+      body: serializeProject(editor.project),
+    });
+    if (!r.ok) throw new Error((await r.json()).error);
+    setUI({ saveState: editor.revision === rev ? "saved" : "dirty" });
+    try {
+      localStorage.setItem("mge:last", name);
+    } catch {
+      /* private mode */
+    }
+    return true;
+  } catch (e) {
+    setUI({ saveState: "offline" });
+    try {
+      localStorage.setItem(`mge:backup:${name}`, serializeProject(editor.project));
+    } catch {
+      /* storage full or blocked */
+    }
+    if (opts.version) toast(`Save failed: ${(e as Error).message}`, "error");
+    return false;
+  }
+}
+
+export async function openProject(name: string): Promise<boolean> {
+  const r = await fetch(`/api/project?name=${encodeURIComponent(name)}`);
+  if (!r.ok) return false;
+  const p = parseProject(await r.text());
+  setUI({ projectName: name, selection: [], keys: [], time: 0 });
+  editor.load(p);
+  setUI({ saveState: "saved" });
+  return true;
+}
+
+export async function listVersions(): Promise<string[]> {
+  const r = await fetch(`/api/versions?name=${encodeURIComponent(getUI().projectName)}`);
+  return r.ok ? r.json() : [];
+}
+export async function loadVersion(v: string): Promise<Project> {
+  const r = await fetch(`/api/version?name=${encodeURIComponent(getUI().projectName)}&v=${encodeURIComponent(v)}`);
+  return parseProject(await r.text());
+}
+
+export async function uploadAsset(file: File): Promise<string> {
+  try {
+    const r = await fetch(`/api/asset?name=${encodeURIComponent(getUI().projectName)}&file=${encodeURIComponent(file.name)}`, { method: "PUT", body: file });
+    if (!r.ok) throw new Error("upload failed");
+    return (await r.json()).src;
+  } catch {
+    // No local server (static build): embed small files as data URLs.
+    if (file.size > 20 * 1024 * 1024) throw new Error("Large media needs the local server (npm run dev)");
+    return await new Promise((res) => {
+      const fr = new FileReader();
+      fr.onload = () => res(String(fr.result));
+      fr.readAsDataURL(file);
+    });
+  }
+}
+
+export interface ExportRequest {
+  format: "prores4444" | "mp4" | "png";
+  fps?: number;
+  width?: number;
+}
+export async function startExport(req: ExportRequest): Promise<{ id: string; out: string }> {
+  await saveProject();
+  const r = await fetch(`/api/export?name=${encodeURIComponent(getUI().projectName)}`, {
+    method: "POST",
+    body: JSON.stringify({ ...req, compId: editor.project.activeCompId }),
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error);
+  return j;
+}
+export async function exportStatus(id: string) {
+  const r = await fetch(`/api/export/status?id=${encodeURIComponent(id)}`);
+  return r.json() as Promise<{ status: string; done: number; total: number; out: string; error?: string }>;
+}
+export async function cancelExport(id: string) {
+  await fetch(`/api/export/cancel?id=${encodeURIComponent(id)}`, { method: "POST" });
+}
