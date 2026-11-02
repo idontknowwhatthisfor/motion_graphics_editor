@@ -3,13 +3,14 @@ import type { Asset } from "../core/types";
 import { newId } from "../core/id";
 import { compContains } from "../core/commands";
 import { lowerThirdProject } from "../core/samples";
-import { saveProject, uploadAsset, openProject } from "./api";
+import { listProjects, saveProject, uploadAsset, openProject } from "./api";
 import { startBridge } from "./bridge-client";
 import { Inspector } from "./Inspector";
 import { ClaudePanel, Dialogs } from "./Panels";
 import { activeComp, editor, getUI, newBlankProject, run, setTime, setUI, toast, useEditorRevision, useProject, useUI, type Tool } from "./state";
 import { Timeline } from "./Timeline";
 import { Viewer } from "./Viewer";
+import { native, toFile } from "./native";
 
 const TOOLS: [Tool, string, string][] = [
   ["select", "V", "Select / move"],
@@ -82,6 +83,65 @@ function precompose() {
   if (r.ok) setUI({ selection: [(r.results[0] as { layerId: string }).layerId] });
 }
 
+const isTyping = () => {
+  const el = document.activeElement as HTMLElement | null;
+  return !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+};
+
+function addLayer(type: "shape" | "text" | "solid" | "null") {
+  const r = run({ type: "layer.add", layerType: type, opts: type === "solid" ? { color: "#1d4ed8" } : {} });
+  if (r.ok) setUI({ selection: [(r.results[0] as { layerId: string }).layerId] });
+}
+
+/** Commands from the Mac app's native menus (ED-26). */
+function menuCommand(id: string) {
+  const ui = getUI();
+  switch (id) {
+    case "new-project":
+      if (window.confirm("Start a new empty project? The current one stays saved.")) newBlankProject();
+      return;
+    case "open-project":
+      return setUI({ dialog: "versions" });
+    case "sample":
+      editor.load(lowerThirdProject());
+      return setUI({ projectName: "lower-third-sample" });
+    case "save-version":
+      return void saveProject({ version: true }).then((ok) => ok && toast("Saved"));
+    case "flush-save":
+      return void (getUI().saveState === "saved" ? Promise.resolve(true) : saveProject()).finally(() => native?.flushed());
+    case "export":
+      return setUI({ dialog: "export" });
+    case "undo":
+      // Text fields keep their own undo.
+      if (isTyping()) return void document.execCommand("undo");
+      return editor.undo();
+    case "redo":
+      if (isTyping()) return void document.execCommand("redo");
+      return editor.redo();
+    case "duplicate":
+      return ui.selection.forEach((l) => run({ type: "layer.duplicate", layerId: l }));
+    case "split":
+      return ui.selection.forEach((l) => run({ type: "layer.split", layerId: l, t: ui.time }));
+    case "delete":
+      if (ui.selection.length) run({ type: "layer.delete", layerIds: ui.selection });
+      return;
+    case "new-comp":
+      return setUI({ dialog: "newComp" });
+    case "comp-settings":
+      return setUI({ dialog: "comp" });
+    case "precompose":
+      return precompose();
+    case "marker":
+      return void run({ type: "marker.add", t: ui.time, label: "" });
+    case "play":
+      return setUI({ playing: !ui.playing });
+    case "toggle-ref":
+      return setUI({ showReference: !ui.showReference });
+    default:
+      if (id.startsWith("add:")) addLayer(id.slice(4) as "shape");
+  }
+}
+
 export function App() {
   const project = useProject();
   useEditorRevision();
@@ -103,9 +163,30 @@ export function App() {
     } catch {
       /* ignore */
     }
-    if (last) openProject(last).catch(() => undefined);
+    if (last)
+      listProjects()
+        .then((list) => list.some((p) => p.name === last) && openProject(last!))
+        .catch(() => undefined);
     startBridge();
+    if (!native) return;
+    const offs = [
+      native.onMenu(menuCommand),
+      native.onOpenFiles((files) => importFiles(files.map(toFile))),
+      native.onOpenProject((name) => {
+        // Save what is open first, then switch.
+        saveProject().finally(() => openProject(name).then((ok) => (ok ? toast(`Opened ${name}`) : toast(`Cannot open ${name}`, "error"))));
+      }),
+    ];
+    return () => offs.forEach((off) => off());
   }, []);
+
+  // Mac app: window title, the "edited" dot, and which menu items are enabled.
+  useEffect(() => {
+    native?.setTitle(`${projectName} — ${comp.name}`, saveState !== "saved");
+  }, [projectName, comp.name, saveState]);
+  useEffect(() => {
+    native?.setMenuState({ canUndo: editor.canUndo, canRedo: editor.canRedo, hasSelection: selection.length > 0 });
+  });
 
   // Playback: real-time, frame-snapped, loops.
   useEffect(() => {
@@ -254,12 +335,12 @@ export function App() {
         <span className="sep" />
         <select
           value=""
+          style={{ maxWidth: 110 }}
           onChange={(e) => {
             const v = e.target.value;
             if (v === "precompose") return precompose();
-            const r = v.startsWith("precomp:")
-              ? run({ type: "layer.add", layerType: "precomp", opts: { compId: v.slice(8) } })
-              : run({ type: "layer.add", layerType: v as "solid", opts: v === "solid" ? { color: "#1d4ed8" } : {} });
+            if (!v.startsWith("precomp:")) return addLayer(v as "solid");
+            const r = run({ type: "layer.add", layerType: "precomp", opts: { compId: v.slice(8) } });
             if (r.ok) setUI({ selection: [(r.results[0] as { layerId: string }).layerId] });
           }}
         >
@@ -273,9 +354,9 @@ export function App() {
             .map((c) => (
               <option key={c.id} value={`precomp:${c.id}`}>Nested comp: {c.name}</option>
             ))}
-          <option value="precompose" disabled={!selection.length}>Precompose selected (Cmd+Shift+C)</option>
+          <option value="precompose" disabled={!selection.length}>Precompose selection</option>
         </select>
-        <button onClick={() => fileRef.current?.click()} title="Import SVG, PNG, JPG, or a reference video (or drag files onto the window)">Import</button>
+        <button onClick={() => (native ? native.pick("import") : fileRef.current?.click())} title="Import SVG, PNG, JPG, or a reference video (or drag files onto the window)">Import</button>
         <input ref={fileRef} type="file" multiple hidden accept=".svg,.png,.jpg,.jpeg,.mp4,.mov,.webm" onChange={(e) => e.target.files && importFiles(e.target.files)} />
         <label className="small" title="Show reference video layers (never exported)"><input type="checkbox" checked={showReference} onChange={(e) => setUI({ showReference: e.target.checked })} /> Ref</label>
         <span className="spacer" />

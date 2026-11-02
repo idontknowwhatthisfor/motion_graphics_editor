@@ -16,7 +16,7 @@ import type { Browser, Page } from "playwright";
 import { compileToHyperFrames, exportedAssetPath, type CompiledComposition } from "../../src/compiler/hyperframes";
 import type { Project } from "../../src/core/types";
 
-export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+export const ROOT = process.env.MGE_ROOT ?? resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(import.meta.url);
 
 export function runtimeJs(): string {

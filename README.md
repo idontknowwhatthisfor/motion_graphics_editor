@@ -18,6 +18,25 @@ npm run build:runtime
 npm run dev                       # open http://127.0.0.1:5173
 ```
 
+### The Mac app (Dock icon, menus, file dialogs)
+
+```
+npm run app:install     # builds, then puts "Motion Graphics.app" in ~/Applications
+```
+
+Open it from Spotlight, then right-click its Dock icon › Options › Keep in
+Dock. The app loads the editor from this folder, so projects stay in
+`projects/` and renders in `renders/`. After pulling new code run
+`npm run build && npm run build:electron`; re-run `app:install` only when
+`npm install` changes the Electron version. `npm run app` opens it without
+installing, and `npm run app:dev` opens it with hot reload.
+
+In the app: File › Open Project File… (or dropping a `project.json` on the
+Dock icon) copies a project from anywhere into `projects/` with its assets;
+File › Import… (Cmd+I) or dropping images and video on the window or the
+Dock icon imports them; File › Export… is Cmd+M. Claude connects to the app
+the same way as to `npm run dev`; only run one of them at a time.
+
 ## Engine test (do this first, PRD step 1)
 
 With the Claude app open:

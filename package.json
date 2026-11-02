@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Personal motion graphics editor with a Claude (MCP) integration. See CLAUDE.md.",
+  "main": "electron/start.mjs",
   "engines": {
     "node": ">=22"
   },
@@ -20,7 +21,12 @@
     "engine-test": "tsx scripts/engine-test.ts",
     "mcp": "tsx mcp/server.ts",
     "mcp:setup": "tsx scripts/mcp-setup.ts",
-    "e2e:mcp": "tsx scripts/e2e-mcp.ts"
+    "e2e:mcp": "tsx scripts/e2e-mcp.ts",
+    "build:electron": "tsx scripts/build-electron.ts",
+    "app": "npm run build && npm run build:electron && electron .",
+    "app:dev": "npm run build:runtime && npm run build:electron && MGE_DEV=1 electron .",
+    "app:install": "npm run build && npm run build:electron && tsx scripts/mac-app.ts",
+    "e2e:app": "npm run build && npm run build:electron && tsx scripts/e2e-electron.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
@@ -37,6 +43,7 @@
     "@types/react-dom": "^18.3.1",
     "@types/ws": "^8.5.13",
     "@vitejs/plugin-react": "^4.3.3",
+    "electron": "44.7.0",
     "esbuild": "^0.24.0",
     "playwright": "^1.48.2",
     "tsx": "^4.19.2",

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { COMP_PRESETS, FPS_PRESETS } from "../core/factory";
 import type { Project } from "../core/types";
 import { cancelExport, exportStatus, listProjects, listVersions, loadVersion, openProject, saveProject, startExport, type ExportRequest } from "./api";
+import { native } from "./native";
 import { answerExportRequest, resumeClaude, stopClaude } from "./bridge-client";
 import { activeComp, editor, findLayer, run, setUI, toast, useEditorRevision, useProject, useUI } from "./state";
 
@@ -201,7 +202,12 @@ function ExportDialog() {
             </span>
           </div>
         )}
-        {job && st?.status === "done" && <div className="small">Saved to {job.out}</div>}
+        {job && st?.status === "done" && (
+          <div className="small">
+            Saved to {job.out}{" "}
+            {native && <button onClick={() => native!.revealInFinder(job.out)}>Show in Finder</button>}
+          </div>
+        )}
       </div>
       <div className="modal-foot">
         {job && st?.status === "running" ? (

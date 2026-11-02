@@ -91,6 +91,8 @@ npm run typecheck
 npm test                # Vitest: easing, interpolation, commands, undo, change sets, compiler
 npm run e2e             # Playwright drives the real editor; screenshots in renders/e2e/
 npm run e2e:mcp         # real stdio MCP server + bridge + editor: edits, review, stop, approved export
+npm run e2e:app         # the Electron app: menus, Finder opens, project adoption, export, save on close
+                        # (Linux container: NODE_OPTIONS= xvfb-run -a npx tsx scripts/e2e-electron.ts)
 npm run engine-test     # slow (~3 min): ProRes 4444 alpha renders + ffprobe + keyframe edit check
 ```
 
@@ -125,7 +127,19 @@ renderer.ts `effectFilter`), nested comps (ED-02: `precomp` layer with compId
 prefixed `<layerId>__`, compiler ships every nested comp), WebM VP9 alpha and
 GIF export (ED-20). Tests in tests/m2.test.ts.
 
-Remaining batches: 2 Electron Mac app (ED-26); 3 expressions + repeaters/path
+Batch 2 done: Electron Mac app (ED-26). electron/main.ts runs its own
+127.0.0.1:5199 server with the same store middleware (createStoreMiddleware in
+scripts/vite-project-store.ts) and Claude bridge, serves dist/, and owns the
+native menus (ids map to menuCommand() in src/ui/App.tsx), Import/Open
+dialogs, Finder/Dock file opens (project.json is copied into projects/ by
+adoptProjectFile) and a save-before-close handshake. The page only sees
+window.mgeNative from electron/preload.ts (src/ui/native.ts). Entry is
+electron/start.mjs (sets MGE_ROOT, Homebrew PATH). `npm run app:install`
+(scripts/mac-app.ts) makes ~/Applications/Motion Graphics.app: a renamed,
+ad-hoc signed copy of Electron.app whose Resources/app stub imports
+electron/start.mjs from this folder. Electron is pinned to 44.7.0.
+
+Remaining batches: 3 expressions + repeaters/path
 offset (ED-12, ED-09); 4 brand kits + templates (ED-15, ED-16); 5 audio and
 video layers (ED-14, ED-23); 6 Claude extras (CL-09..CL-12).
 

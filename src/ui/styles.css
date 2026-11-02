@@ -31,14 +31,14 @@ textarea { width: 100%; resize: vertical; }
 .sep { width: 1px; height: 20px; background: var(--line); margin: 0 4px; }
 .row { display: flex; gap: 6px; align-items: center; }
 
-.app { display: grid; grid-template-rows: 40px minmax(200px, 1fr) minmax(240px, 42%); height: 100%; }
+.app { display: grid; grid-template-rows: 40px minmax(200px, 1fr) minmax(240px, 42%); grid-template-columns: minmax(0, 1fr); height: 100%; }
 .topbar { display: flex; align-items: center; gap: 4px; padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; white-space: nowrap; }
 .brand { color: var(--accent); margin-right: 4px; }
 .pname-input { width: 120px; }
 .topbar button, .topbar select { padding: 3px 6px; }
 .save { color: var(--muted); font-size: 11px; min-width: 70px; text-align: right; }
 .save-offline { color: #fbbf24; }
-.main { display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; min-height: 0; }
 
 /* viewer */
 .viewer { position: relative; overflow: hidden; background: #0e0f12; user-select: none; }

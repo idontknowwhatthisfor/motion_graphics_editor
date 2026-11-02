@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-electron/
 renders/
 .cache/
 projects/*/autosave/
@@ -7,3 +8,4 @@ projects/*/autosave/
 *.log
 .DS_Store
 src/compiler/runtime.generated.js
+projects/
