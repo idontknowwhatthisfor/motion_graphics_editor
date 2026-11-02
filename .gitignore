@@ -10,3 +10,4 @@ projects/*/autosave/
 src/compiler/runtime.generated.js
 projects/
 library/
+.claude/
