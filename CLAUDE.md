@@ -137,7 +137,7 @@ window.mgeNative from electron/preload.ts (src/ui/native.ts). Entry is
 electron/start.mjs (sets MGE_ROOT, Homebrew PATH). `npm run app:install`
 (scripts/mac-app.ts) makes ~/Applications/Motion Graphics.app: a renamed,
 ad-hoc signed copy of Electron.app whose Resources/app stub imports
-electron/start.mjs from this folder. Electron is pinned to 44.7.0.
+electron/start.mjs from this folder. Electron is pinned to 44.10.1.
 
 Batch 3 done: expressions (ED-12) as a safe formula language in
 src/core/expressions.ts (not JS; Prop.expression; applied through the hook in
