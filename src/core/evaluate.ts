@@ -11,6 +11,7 @@ import { rawValueAt, setExpressionHook, valueAt, type ExpressionHook } from "./i
 import { forEachProp, getProp } from "./props";
 import type {
   AnimValue,
+  BrandKit,
   Prop,
   Asset,
   BlendMode,
@@ -276,7 +277,7 @@ export function resolveChars(text: string, base: Color, animators: TextAnimator[
   return out;
 }
 
-type EvalProject = Pick<Project, "assets"> & Partial<Pick<Project, "compositions">>;
+type EvalProject = Pick<Project, "assets"> & Partial<Pick<Project, "compositions" | "brand">>;
 
 /** Prefix nested layer ids so SVG ids stay unique when a comp is reused. */
 function prefixScene(scene: ResolvedScene, prefix: string): ResolvedScene {
@@ -418,8 +419,9 @@ function owners(comp: Composition): Map<Prop, Owner> {
   return m;
 }
 
-function exprContext(comp: Composition, o: Owner, p: Prop, t: number, base: AnimValue) {
+function exprContext(comp: Composition, o: Owner, p: Prop, t: number, base: AnimValue, brand?: BrandKit) {
   return {
+    brand: brand ? Object.fromEntries(brand.colors.map((c) => [c.name, c.color])) : undefined,
     value: base,
     time: t,
     prop: p,
@@ -445,7 +447,7 @@ function exprContext(comp: Composition, o: Owner, p: Prop, t: number, base: Anim
   };
 }
 
-function expressionHook(comp: Composition): ExpressionHook {
+function expressionHook(comp: Composition, brand?: BrandKit): ExpressionHook {
   const map = owners(comp);
   const active = new Set<Prop>();
   return (p, t, base) => {
@@ -453,7 +455,7 @@ function expressionHook(comp: Composition): ExpressionHook {
     if (!o || active.has(p)) return base; // unknown, or a link loop: use the plain value
     active.add(p);
     try {
-      return evaluateExpression(p.expression!, exprContext(comp, o, p, t, base));
+      return evaluateExpression(p.expression!, exprContext(comp, o, p, t, base, brand));
     } catch {
       return base; // a broken expression never breaks a render; the Inspector shows the error
     } finally {
@@ -463,14 +465,14 @@ function expressionHook(comp: Composition): ExpressionHook {
 }
 
 /** Evaluate one property's expression and report its result or error (for the Inspector and MCP). */
-export function checkExpression(comp: Composition, layerId: string, path: string, t: number): { value?: AnimValue; error?: string } {
+export function checkExpression(comp: Composition, layerId: string, path: string, t: number, brand?: BrandKit): { value?: AnimValue; error?: string } {
   const layer = comp.layers.find((l) => l.id === layerId);
   const p = layer && getProp(layer, path);
   if (!layer || !p?.expression) return {};
-  const prev = setExpressionHook(expressionHook(comp));
+  const prev = setExpressionHook(expressionHook(comp, brand));
   try {
     const o = owners(comp).get(p) ?? { layer, index: comp.layers.indexOf(layer), path };
-    return { value: evaluateExpression(p.expression, exprContext(comp, o, p, t, rawValueAt(p, t))) };
+    return { value: evaluateExpression(p.expression, exprContext(comp, o, p, t, rawValueAt(p, t), brand)) };
   } catch (e) {
     return { error: (e as Error).message };
   } finally {
@@ -484,7 +486,7 @@ export function evaluateComposition(
   t: number,
   opts: EvaluateOptions = {},
 ): ResolvedScene {
-  const prevHook = setExpressionHook(expressionHook(comp));
+  const prevHook = setExpressionHook(expressionHook(comp, project.brand));
   try {
     return evaluateCompositionInner(project, comp, t, opts);
   } finally {

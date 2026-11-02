@@ -122,3 +122,39 @@ describe("repeaters and path offset (ED-09)", () => {
     expect(() => ed.must({ type: "shape.addOperator", layerId: add(ed, "null"), operator: "repeater" })).toThrow();
   });
 });
+
+describe("brand kits (ED-15) and templates (ED-16)", () => {
+  const kit = { name: "Acme", colors: [{ name: "Primary", color: "#ff0000" }], fonts: [{ name: "Head", family: "Futura", weight: 700 }] };
+
+  it("a brand colour linked by expression follows the kit", () => {
+    const ed = new Editor(makeProject());
+    ed.must({ type: "brand.set", brand: kit });
+    const id = add(ed, "solid");
+    ed.must({ type: "prop.setExpression", layerId: id, path: "color", expression: 'brand("Primary")' });
+    expect((layerOf(ed, id, 0).content as { color: string }).color).toBe("#ff0000");
+    ed.must({ type: "brand.set", brand: { ...kit, colors: [{ name: "Primary", color: "#00ff00" }] } });
+    expect((layerOf(ed, id, 0).content as { color: string }).color).toBe("#00ff00");
+    expect(() => ed.must({ type: "brand.set", brand: { ...kit, colors: [{ name: "X", color: "red" }] } })).toThrow();
+  });
+
+  it("template fields fill text, colours and animated positions, and survive duplicate", () => {
+    const ed = new Editor(makeProject());
+    const title = add(ed, "text", { text: "Name", name: "Title" });
+    const bar = add(ed, "shape", { name: "Bar" });
+    ed.must({ type: "prop.setKeyframes", layerId: bar, path: "transform.position", keyframes: [{ t: 0, v: [0, 500] }, { t: 1, v: [100, 500] }] });
+    ed.must({ type: "template.addField", layerId: title, path: "text", name: "Name" });
+    ed.must({ type: "template.addField", layerId: bar, path: "fill.paint.color", name: "Accent" });
+    ed.must({ type: "template.addField", layerId: bar, path: "transform.position", name: "Where" });
+    expect(() => ed.must({ type: "template.addField", layerId: bar, path: "transform.rotation", name: "Name" })).toThrow(/already/);
+    ed.must({ type: "template.fill", values: { name: "Ada Lovelace", Accent: "#22c55e", Where: [50, 600] } });
+    const c = comp(ed);
+    expect((c.layers.find((l) => l.id === title) as { text: string }).text).toBe("Ada Lovelace");
+    expect(pos(ed, bar, 1)).toEqual([150, 600]);
+    expect(() => ed.must({ type: "template.fill", values: { Nope: 1 } })).toThrow(/No template field/);
+    const dup = (ed.must({ type: "comp.duplicate" })[0] as { compId: string }).compId;
+    const d = ed.project.compositions.find((x) => x.id === dup)!;
+    expect(d.template!.fields.every((f) => d.layers.some((l) => l.id === f.layerId))).toBe(true);
+    ed.must({ type: "layer.delete", layerIds: [title] });
+    expect(comp(ed).template!.fields.map((f) => f.name)).toEqual(["Accent", "Where"]);
+  });
+});

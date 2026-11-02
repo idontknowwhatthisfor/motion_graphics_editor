@@ -352,6 +352,26 @@ export interface Marker {
   color?: Color;
 }
 
+/**
+ * A named editable field of a template composition (ED-16): what someone
+ * fills in to reuse the comp (a name, a title colour, a number...).
+ * `path` is "text" for a text layer's text, else a property path.
+ */
+export interface TemplateField {
+  id: string;
+  name: string;
+  layerId: string;
+  path: string;
+  kind: "text" | "color" | "number" | "vec2";
+}
+
+/** Brand kit (ED-15): named colours and fonts, stored in the project so exports are self-contained. */
+export interface BrandKit {
+  name: string;
+  colors: { name: string; color: Color }[];
+  fonts: { name: string; family: string; weight: number }[];
+}
+
 export interface Composition {
   id: string;
   name: string;
@@ -364,6 +384,8 @@ export interface Composition {
   background: Color | null;
   layers: Layer[];
   markers: Marker[];
+  /** Present when this comp is a template (ED-16). */
+  template?: { fields: TemplateField[] };
 }
 
 export interface Asset {
@@ -387,6 +409,8 @@ export interface Project {
   compositions: Composition[];
   assets: Asset[];
   activeCompId: string;
+  /** Active brand kit (ED-15); expressions can use brand("Primary"). */
+  brand?: BrandKit;
   settings: {
     /** How Claude's change sets are handled (Permission and privacy). */
     permissionMode: PermissionMode;

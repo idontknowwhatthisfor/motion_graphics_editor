@@ -39,7 +39,7 @@ export interface UIState {
   /** Change set being previewed as "before". */
   previewBefore: string | null;
   toast: { text: string; kind: "info" | "error" } | null;
-  dialog: null | "comp" | "newComp" | "export" | "versions" | "audit";
+  dialog: null | "comp" | "newComp" | "export" | "versions" | "audit" | "brand" | "template";
   projectName: string;
   saveState: "saved" | "saving" | "dirty" | "offline";
   showReference: boolean;

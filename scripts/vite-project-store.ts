@@ -10,7 +10,7 @@
  *   projects/<name>/assets/<file>         imported media (ED-17)
  *   renders/<name>-<comp>.<ext>           exports
  */
-import { createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { cpSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, extname, join, resolve } from "node:path";
 import type { Plugin, ViteDevServer } from "vite";
@@ -79,6 +79,8 @@ export function createStoreMiddleware(cfg: { root: string; bridgeToken: () => st
   const ROOT = cfg.root;
   const PROJECTS = join(ROOT, "projects");
   const RENDERS = join(ROOT, "renders");
+  // Brand kits (ED-15) and templates (ED-16) shared by every project.
+  const LIBRARY = { brand: join(ROOT, "library", "brand-kits"), template: join(ROOT, "library", "templates") };
   mkdirSync(PROJECTS, { recursive: true });
   return async (req, res, next) => {
     const url = new URL(req.url ?? "/", "http://localhost");
@@ -157,6 +159,54 @@ export function createStoreMiddleware(cfg: { root: string; bridgeToken: () => st
         for (let i = 1; existsSync(target); i++) target = join(dir, "assets", `${i}-${file}`);
         writeFileSync(target, await body(req));
         return json(res, 200, { src: `assets/${basename(target)}` });
+      }
+      if (path.startsWith("/api/library")) {
+        const kind = url.searchParams.get("kind") === "template" ? "template" : "brand";
+        const base = LIBRARY[kind];
+        mkdirSync(base, { recursive: true });
+        const itemFile = (n: string) => (kind === "brand" ? join(base, `${safeName(n)}.json`) : join(base, safeName(n), "project.json"));
+        if (path === "/api/library" && req.method === "GET") {
+          const list = readdirSync(base)
+            .map((f) => f.replace(/\.json$/, ""))
+            .filter((n) => existsSync(itemFile(n)))
+            .map((n) => ({ name: n, modified: statSync(itemFile(n)).mtimeMs }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          return json(res, 200, list);
+        }
+        if (path === "/api/library/item" && req.method === "GET") {
+          const f = itemFile(url.searchParams.get("name") ?? "");
+          if (!existsSync(f)) return json(res, 404, { error: "not found" });
+          res.setHeader("content-type", "application/json");
+          return res.end(readFileSync(f));
+        }
+        if (path === "/api/library/item" && req.method === "PUT" && kind === "brand") {
+          const data = await body(req, 1024 * 1024);
+          JSON.parse(data.toString("utf8"));
+          writeFileSync(itemFile(url.searchParams.get("name") ?? "brand"), data);
+          return json(res, 200, { ok: true });
+        }
+        if (path === "/api/library/save-template" && req.method === "POST") {
+          // Copies the saved project (and its assets) into the template library.
+          const from = join(PROJECTS, safeName(url.searchParams.get("from") ?? ""));
+          if (!existsSync(join(from, "project.json"))) return json(res, 400, { error: "Save the project first" });
+          const target = join(LIBRARY.template, safeName(url.searchParams.get("name") ?? "template"));
+          mkdirSync(target, { recursive: true });
+          writeFileSync(join(target, "project.json"), readFileSync(join(from, "project.json")));
+          if (existsSync(join(from, "assets"))) cpSync(join(from, "assets"), join(target, "assets"), { recursive: true });
+          return json(res, 200, { ok: true });
+        }
+        if (path === "/api/library/use-template" && req.method === "POST") {
+          const src = join(LIBRARY.template, safeName(url.searchParams.get("name") ?? ""));
+          if (!existsSync(join(src, "project.json"))) return json(res, 404, { error: "no such template" });
+          const stem = safeName(url.searchParams.get("as") ?? "from-template");
+          let n = stem;
+          for (let i = 2; existsSync(join(PROJECTS, n)); i++) n = `${stem}-${i}`;
+          mkdirSync(join(PROJECTS, n, "versions"), { recursive: true });
+          writeFileSync(join(PROJECTS, n, "project.json"), readFileSync(join(src, "project.json")));
+          if (existsSync(join(src, "assets"))) cpSync(join(src, "assets"), join(PROJECTS, n, "assets"), { recursive: true });
+          return json(res, 200, { name: n });
+        }
+        return json(res, 404, { error: "unknown library endpoint" });
       }
       if (path === "/api/export" && req.method === "POST") {
         const opts = JSON.parse((await body(req)).toString("utf8")) as { format: ExportFormat; fps?: number; width?: number; compId?: string };

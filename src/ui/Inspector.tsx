@@ -82,6 +82,7 @@ function PropRow({ layer, path, label, step, min, max }: { layer: Layer; path: s
   const time = useUI((s) => s.time);
   const key = useRef(`insp-${Math.random()}`);
   const [exprOpen, setExprOpen] = useState(false);
+  const brand = useProject().brand;
   const p = getProp(layer, path);
   if (!p) return null;
   const anim = isAnimated(p);
@@ -93,7 +94,25 @@ function PropRow({ layer, path, label, step, min, max }: { layer: Layer; path: s
   const canExpr = typeof v === "number" || typeof v === "string" || Array.isArray(v);
   let editor: JSX.Element;
   if (typeof v === "number") editor = <NumberField value={v} step={step} min={min} max={max} onChange={set} onCommit={commit} />;
-  else if (typeof v === "string") editor = <ColorField value={v} onChange={set} />;
+  else if (typeof v === "string")
+    editor = (
+      <>
+        <ColorField value={v} onChange={set} />
+        {brand?.colors.slice(0, 8).map((c) => (
+          <button
+            key={c.name}
+            className="swatch"
+            style={{ background: c.color }}
+            title={`${c.name} ${c.color} (Shift-click to link to the brand kit)`}
+            onClick={(e) =>
+              e.shiftKey
+                ? run({ type: "prop.setExpression", layerId: layer.id, path, expression: `brand(${JSON.stringify(c.name)})` })
+                : set(c.color)
+            }
+          />
+        ))}
+      </>
+    );
   else if (Array.isArray(v))
     editor = (
       <>
@@ -144,7 +163,7 @@ function ExpressionEditor({ layer, path, expression, onClose }: { layer: Layer; 
     setErr(r.ok ? null : (r.error ?? "Expression error"));
     if (r.ok && !src.trim()) onClose();
   };
-  const runtime = expression ? checkExpression(activeComp(project), layer.id, path, time) : {};
+  const runtime = expression ? checkExpression(activeComp(project), layer.id, path, time, project.brand) : {};
   const shown = err ?? runtime.error ?? null;
   return (
     <div className="expr">
@@ -509,6 +528,16 @@ export function Inspector() {
                 ))}
               </datalist>
             </div>
+            {project.brand?.fonts.length ? (
+              <div className="prow">
+                <span className="plabel">Brand</span>
+                {project.brand.fonts.map((fo) => (
+                  <button key={fo.name} title={`${fo.family} ${fo.weight}`} onClick={() => upd(layer, { style: { family: fo.family, weight: fo.weight } })}>
+                    {fo.name}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="prow">
               <span className="plabel">Weight</span>
               <select value={layer.style.weight} onChange={(e) => upd(layer, { style: { weight: Number(e.target.value) } })}>

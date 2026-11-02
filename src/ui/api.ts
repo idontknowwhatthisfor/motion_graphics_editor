@@ -1,6 +1,6 @@
 /** Talks to the local project store (scripts/vite-project-store.ts). */
 import { parseProject, serializeProject } from "../core/project-io";
-import type { Asset, Project } from "../core/types";
+import type { Asset, BrandKit, Project } from "../core/types";
 import { editor, getUI, setUI, toast } from "./state";
 
 export function assetUrl(a: Asset): string {
@@ -98,4 +98,32 @@ export async function exportStatus(id: string) {
 }
 export async function cancelExport(id: string) {
   await fetch(`/api/export/cancel?id=${encodeURIComponent(id)}`, { method: "POST" });
+}
+
+// ---------- library: brand kits (ED-15) and templates (ED-16) ----------
+export async function listLibrary(kind: "brand" | "template"): Promise<{ name: string; modified: number }[]> {
+  const r = await fetch(`/api/library?kind=${kind}`);
+  return r.ok ? r.json() : [];
+}
+export async function loadBrandKit(name: string): Promise<BrandKit> {
+  const r = await fetch(`/api/library/item?kind=brand&name=${encodeURIComponent(name)}`);
+  if (!r.ok) throw new Error("Brand kit not found");
+  return r.json();
+}
+export async function saveBrandKit(kit: BrandKit): Promise<void> {
+  const r = await fetch(`/api/library/item?kind=brand&name=${encodeURIComponent(kit.name)}`, { method: "PUT", body: JSON.stringify(kit, null, 2) });
+  if (!r.ok) throw new Error((await r.json()).error);
+}
+export async function saveAsTemplate(name: string): Promise<void> {
+  if (!(await saveProject({ version: true }))) throw new Error("Save failed");
+  const r = await fetch(`/api/library/save-template?name=${encodeURIComponent(name)}&from=${encodeURIComponent(getUI().projectName)}`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json()).error);
+}
+/** Make a new project from a template and open it. */
+export async function newFromTemplate(template: string, as: string): Promise<string> {
+  const r = await fetch(`/api/library/use-template?name=${encodeURIComponent(template)}&as=${encodeURIComponent(as)}`, { method: "POST" });
+  if (!r.ok) throw new Error((await r.json()).error);
+  const { name } = await r.json();
+  await openProject(name);
+  return name;
 }

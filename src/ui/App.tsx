@@ -127,6 +127,10 @@ function menuCommand(id: string) {
       return;
     case "new-comp":
       return setUI({ dialog: "newComp" });
+    case "template":
+      return setUI({ dialog: "template" });
+    case "brand":
+      return setUI({ dialog: "brand" });
     case "comp-settings":
       return setUI({ dialog: "comp" });
     case "precompose":
@@ -326,6 +330,8 @@ export function App() {
         </select>
         <button onClick={() => setUI({ dialog: "comp" })} title="Composition settings (Cmd+K)">Settings</button>
         <button onClick={() => setUI({ dialog: "newComp" })}>+ Comp</button>
+        <button onClick={() => setUI({ dialog: "template" })} title="Template fields and the template library">Template</button>
+        <button onClick={() => setUI({ dialog: "brand" })} title="Brand kit: colours and fonts">Brand</button>
         <span className="sep" />
         {TOOLS.map(([t, k, label]) => (
           <button key={t} className={tool === t ? "active" : ""} title={`${label} (${k})`} onClick={() => setUI({ tool: t })}>

@@ -88,6 +88,23 @@ await page.keyboard.press("Control+Shift+c");
 check((await page.locator(".tl-row.layer .lname", { hasText: "Pen path comp" }).count()) === 1 && (await page.locator(".inspector .section-head", { hasText: "Nested comp" }).count()) === 1, "precompose replaces the layer with a nested comp");
 await page.screenshot({ path: join(out, "02b-effects-precomp.png") });
 
+// brand kit (ED-15): apply the default kit, swatches appear on colour rows
+await page.locator(".topbar button", { hasText: "Brand" }).click();
+await page.locator("[data-testid=brand-dialog]").waitFor();
+await page.locator(".modal button.primary").click();
+await page.locator(".tl-row.layer .lname", { hasText: "Rectangle" }).first().click();
+check((await page.locator(".inspector .swatch").count()) > 0, "a brand kit adds colour swatches to the Inspector");
+
+// template fields (ED-16)
+await page.locator(".topbar button", { hasText: "Template" }).click();
+const tpl = page.locator("[data-testid=template-dialog]");
+await tpl.locator("select").first().selectOption({ label: "Rectangle" });
+await tpl.locator("select").nth(1).selectOption("fill.paint.color");
+await tpl.locator("input[placeholder='Field name']").fill("Accent");
+await tpl.locator("button", { hasText: "+ Field" }).click();
+check((await tpl.locator("input[type=color]").count()) === 1, "a template field can be added and filled");
+await page.locator(".modal-head button").click();
+
 // composition settings: change fps
 await page.keyboard.press("Control+k");
 await page.locator(".modal label", { hasText: "Frame rate" }).locator("input").fill("25");

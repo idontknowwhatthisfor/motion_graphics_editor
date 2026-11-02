@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { COMP_PRESETS, FPS_PRESETS } from "../core/factory";
-import type { Project } from "../core/types";
-import { cancelExport, exportStatus, listProjects, listVersions, loadVersion, openProject, saveProject, startExport, type ExportRequest } from "./api";
+import type { BrandKit, Project, TemplateField, Vec2 } from "../core/types";
+import { getProp, listProps } from "../core/props";
+import { cancelExport, exportStatus, listLibrary, listProjects, loadBrandKit, newFromTemplate, saveAsTemplate, saveBrandKit, listVersions, loadVersion, openProject, saveProject, startExport, type ExportRequest } from "./api";
 import { native } from "./native";
 import { answerExportRequest, resumeClaude, stopClaude } from "./bridge-client";
 import { activeComp, editor, findLayer, run, setUI, toast, useEditorRevision, useProject, useUI } from "./state";
@@ -312,6 +313,168 @@ function ExportApproval() {
   );
 }
 
+// ---------- Brand kit (ED-15) ----------
+const EMPTY_KIT: BrandKit = { name: "My brand", colors: [{ name: "Primary", color: "#f97316" }, { name: "Text", color: "#ffffff" }], fonts: [{ name: "Headline", family: "Inter, Helvetica Neue, Arial, sans-serif", weight: 700 }] };
+
+function BrandDialog() {
+  const project = useProject();
+  const close = () => setUI({ dialog: null });
+  const [kit, setKit] = useState<BrandKit>(() => structuredClone(project.brand ?? EMPTY_KIT));
+  const [saved, setSaved] = useState<{ name: string }[]>([]);
+  useEffect(() => {
+    listLibrary("brand").then(setSaved);
+  }, []);
+  const edit = (fn: (k: BrandKit) => void) => setKit((k) => {
+    const c = structuredClone(k);
+    fn(c);
+    return c;
+  });
+  const apply = () => {
+    const r = run({ type: "brand.set", brand: kit }, { label: `Brand kit ${kit.name}` });
+    if (r.ok) toast(`Brand kit "${kit.name}" is on this project`);
+    return r.ok;
+  };
+  return (
+    <Modal title="Brand kit" onClose={close}>
+      <div className="form" data-testid="brand-dialog">
+        <div className="small muted">
+          Colours show as swatches next to every colour in the Inspector (Shift-click a swatch to link the property, so changing the kit recolours it). Fonts appear first in the font list.
+        </div>
+        <label>
+          Load saved kit{" "}
+          <select value="" onChange={(e) => loadBrandKit(e.target.value).then(setKit).catch((er) => toast(er.message, "error"))}>
+            <option value="" disabled>{saved.length ? "choose…" : "none saved yet"}</option>
+            {saved.map((k) => (
+              <option key={k.name}>{k.name}</option>
+            ))}
+          </select>
+        </label>
+        <label>Name <input value={kit.name} onChange={(e) => edit((k) => (k.name = e.target.value))} /></label>
+        <strong className="small">Colours</strong>
+        {kit.colors.map((c, i) => (
+          <div className="prow" key={i}>
+            <input value={c.name} style={{ width: 120 }} onChange={(e) => edit((k) => (k.colors[i].name = e.target.value))} />
+            <input type="color" value={c.color.slice(0, 7)} onChange={(e) => edit((k) => (k.colors[i].color = e.target.value))} />
+            <code className="small">{c.color}</code>
+            <button onClick={() => edit((k) => k.colors.splice(i, 1))}>✕</button>
+          </div>
+        ))}
+        <button onClick={() => edit((k) => k.colors.push({ name: `Colour ${k.colors.length + 1}`, color: "#888888" }))}>+ Colour</button>
+        <strong className="small">Fonts</strong>
+        {kit.fonts.map((fo, i) => (
+          <div className="prow" key={i}>
+            <input value={fo.name} style={{ width: 100 }} onChange={(e) => edit((k) => (k.fonts[i].name = e.target.value))} />
+            <input value={fo.family} style={{ width: 200 }} onChange={(e) => edit((k) => (k.fonts[i].family = e.target.value))} />
+            <input type="number" value={fo.weight} step={100} min={100} max={900} style={{ width: 60 }} onChange={(e) => edit((k) => (k.fonts[i].weight = Number(e.target.value)))} />
+            <button onClick={() => edit((k) => k.fonts.splice(i, 1))}>✕</button>
+          </div>
+        ))}
+        <button onClick={() => edit((k) => k.fonts.push({ name: "Body", family: "Inter, Helvetica Neue, Arial, sans-serif", weight: 400 }))}>+ Font</button>
+      </div>
+      <div className="modal-foot">
+        {project.brand && <button onClick={() => (run({ type: "brand.set", brand: null }), close())}>Remove from project</button>}
+        <button onClick={() => saveBrandKit(kit).then(() => toast(`Saved kit "${kit.name}" to library/brand-kits`)).catch((e) => toast(e.message, "error"))}>Save to library</button>
+        <button className="primary" onClick={() => apply() && close()}>Use in this project</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ---------- Template fields (ED-16) ----------
+function TemplateDialog() {
+  const project = useProject();
+  useEditorRevision();
+  const comp = activeComp(project);
+  const close = () => setUI({ dialog: null });
+  const fields = comp.template?.fields ?? [];
+  const [layerId, setLayerId] = useState(comp.layers[0]?.id ?? "");
+  const layer = comp.layers.find((l) => l.id === layerId);
+  const paths = layer ? [...(layer.type === "text" ? ["text"] : []), ...listProps(layer).filter((p) => typeof p.prop.value !== "object" || Array.isArray(p.prop.value)).map((p) => p.path)] : [];
+  const [path, setPath] = useState("");
+  const [name, setName] = useState("");
+  const [templates, setTemplates] = useState<{ name: string }[]>([]);
+  const [tplName, setTplName] = useState(comp.name);
+  useEffect(() => {
+    listLibrary("template").then(setTemplates);
+  }, []);
+  const current = (f: TemplateField): string | number | Vec2 => {
+    const l = comp.layers.find((x) => x.id === f.layerId);
+    if (!l) return "";
+    if (f.kind === "text") return l.type === "text" ? l.text : "";
+    const p = getProp(l, f.path);
+    return (p ? (p.keyframes?.length ? p.keyframes[0].v : p.value) : "") as string | number | Vec2;
+  };
+  const fill = (f: TemplateField, v: unknown) => run({ type: "template.fill", values: { [f.id]: v } }, { coalesceKey: `tpl-${f.id}`, label: `Fill ${f.name}` });
+  return (
+    <Modal title={`Template: ${comp.name}`} onClose={close}>
+      <div className="form" data-testid="template-dialog">
+        <strong className="small">Fields</strong>
+        {fields.length === 0 && <div className="small muted">Name the parts someone should change when reusing this comp, e.g. the person's name or the accent colour.</div>}
+        {fields.map((f) => {
+          const v = current(f);
+          return (
+            <div className="prow" key={f.id}>
+              <input value={f.name} style={{ width: 110 }} title="Field name" onChange={(e) => run({ type: "template.updateField", fieldId: f.id, name: e.target.value || f.name }, { coalesceKey: `tplname-${f.id}` })} />
+              {f.kind === "text" && <input value={String(v)} style={{ width: 200 }} onChange={(e) => fill(f, e.target.value)} onKeyDown={(e) => e.stopPropagation()} />}
+              {f.kind === "color" && <input type="color" value={String(v).slice(0, 7)} onChange={(e) => fill(f, e.target.value)} />}
+              {f.kind === "number" && <input type="number" value={Number(v)} style={{ width: 80 }} onChange={(e) => fill(f, Number(e.target.value))} />}
+              {f.kind === "vec2" && (
+                <>
+                  <input type="number" value={(v as Vec2)[0]} style={{ width: 70 }} onChange={(e) => fill(f, [Number(e.target.value), (v as Vec2)[1]])} />
+                  <input type="number" value={(v as Vec2)[1]} style={{ width: 70 }} onChange={(e) => fill(f, [(v as Vec2)[0], Number(e.target.value)])} />
+                </>
+              )}
+              <button title="Remove field" onClick={() => run({ type: "template.removeField", fieldId: f.id })}>✕</button>
+            </div>
+          );
+        })}
+        <div className="prow">
+          <select value={layerId} onChange={(e) => (setLayerId(e.target.value), setPath(""))}>
+            {comp.layers.map((l) => (
+              <option key={l.id} value={l.id}>{l.name}</option>
+            ))}
+          </select>
+          <select value={path} onChange={(e) => setPath(e.target.value)}>
+            <option value="">property…</option>
+            {paths.map((p) => (
+              <option key={p}>{p}</option>
+            ))}
+          </select>
+          <input placeholder="Field name" value={name} style={{ width: 110 }} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+          <button
+            disabled={!path || !name.trim()}
+            onClick={() => {
+              if (run({ type: "template.addField", layerId, path, name }).ok) setName("");
+            }}
+          >
+            + Field
+          </button>
+        </div>
+        <strong className="small">Library</strong>
+        <div className="prow">
+          <input value={tplName} style={{ width: 160 }} onChange={(e) => setTplName(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+          <button onClick={() => saveAsTemplate(tplName).then(() => (toast(`Saved template "${tplName}"`), listLibrary("template").then(setTemplates))).catch((e) => toast(e.message, "error"))}>Save project as template</button>
+        </div>
+        <div className="prow">
+          <span className="small">New project from</span>
+          <select
+            value=""
+            onChange={(e) => {
+              const t = e.target.value;
+              newFromTemplate(t, t).then((n) => (toast(`Opened ${n}`), close())).catch((er) => toast(er.message, "error"));
+            }}
+          >
+            <option value="" disabled>{templates.length ? "choose a template…" : "no templates yet"}</option>
+            {templates.map((t) => (
+              <option key={t.name}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export function Dialogs() {
   const dialog = useUI((s) => s.dialog);
   const exportRequest = useUI((s) => s.exportRequest);
@@ -321,5 +484,7 @@ export function Dialogs() {
   if (dialog === "export") return <ExportDialog />;
   if (dialog === "versions") return <VersionsDialog />;
   if (dialog === "audit") return <AuditDialog />;
+  if (dialog === "brand") return <BrandDialog />;
+  if (dialog === "template") return <TemplateDialog />;
   return null;
 }

@@ -9,3 +9,4 @@ projects/*/autosave/
 .DS_Store
 src/compiler/runtime.generated.js
 projects/
+library/

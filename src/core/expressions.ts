@@ -19,7 +19,7 @@
  * linear/ease/easeIn/easeOut(t, tMin, tMax, a, b), clamp, min, max, abs, sin,
  * cos, tan, atan2, sqrt, pow, exp, log, floor, ceil, round, random(seed?),
  * noise(x), length(a, b?), normalize(v), degreesToRadians, radiansToDegrees,
- * mixColor(a, b, t).
+ * mixColor(a, b, t), brand("Primary") for a brand kit colour.
  */
 import { lerpColor } from "./color";
 import type { AnimValue, Color, Keyframe, Prop } from "./types";
@@ -232,6 +232,8 @@ export interface ExprContext {
   rawAt(t: number): AnimValue;
   /** Linked property value (with its expression) or throws. */
   link(layer: string, path: string, t: number): AnimValue;
+  /** Brand kit colours by name (ED-15). */
+  brand?: Record<string, string>;
 }
 
 const num = (v: V, what: string): number => {
@@ -408,6 +410,12 @@ function call(ctx: ExprContext, f: string, args: V[]): V {
       if (!Array.isArray(v)) throw new ExpressionError("normalize needs a vector");
       const l = Math.hypot(...v.map((x) => num(x, "normalize"))) || 1;
       return v.map((x) => num(x, "normalize") / l);
+    }
+    case "brand": {
+      const name = String(args[0] ?? "");
+      const c = ctx.brand?.[name] ?? Object.entries(ctx.brand ?? {}).find(([k]) => k.toLowerCase() === name.toLowerCase())?.[1];
+      if (!c) throw new ExpressionError(`No brand colour named "${name}"`);
+      return c;
     }
     case "mixColor":
       return lerpColor(String(args[0]) as Color, String(args[1]) as Color, Math.max(0, Math.min(1, num(args[2], "mixColor"))));

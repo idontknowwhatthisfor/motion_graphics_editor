@@ -64,6 +64,13 @@ DaVinci Resolve over a coloured clip and check the edges.
   `wiggle(2, 30)`, `loopOut("pingpong")` or
   `prop("Title", "transform.position") + [0, 80]`. Shape layers also have
   a Repeater (rows, rings, spirals) and an Offset path.
+- Brand (toolbar) holds the project's brand colours and fonts; they appear as
+  swatches and font buttons in the Inspector, and Shift-clicking a swatch
+  links the colour so editing the kit recolours everything. Kits can be saved
+  to `library/brand-kits/` for other projects.
+- Template (toolbar) names the fields to change when reusing a comp (text,
+  colours, numbers, positions), fills them in one place, saves the project to
+  `library/templates/`, and starts new projects from saved templates.
 - Click a property's stopwatch to animate it; click a property name in the
   timeline to open its curve in the graph editor.
 - Drag SVG/PNG/JPG onto the window to import. Drop a video to use it as a

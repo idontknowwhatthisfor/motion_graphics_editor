@@ -16,6 +16,7 @@ import type {
   AnimValue,
   Asset,
   Composition,
+  BrandKit,
   Ease,
   EffectKind,
   Geometry,
@@ -27,6 +28,7 @@ import type {
   PermissionMode,
   PrecompLayer,
   Project,
+  TemplateField,
   TextAnimator,
   Vec2,
 } from "./types";
@@ -82,6 +84,11 @@ export type Command =
   | ({ type: "geometry.remove"; geometryId: string } & LayerRef)
   | ({ type: "animator.add"; preset?: "fadeIn" | "slideUp" | "scaleIn" | "blank"; id?: string } & LayerRef)
   | ({ type: "animator.remove"; animatorId: string } & LayerRef)
+  | { type: "brand.set"; brand: BrandKit | null }
+  | ({ type: "template.addField"; layerId: string; path: string; name: string; id?: string } & CompRef)
+  | ({ type: "template.updateField"; fieldId: string; name: string } & CompRef)
+  | ({ type: "template.removeField"; fieldId: string } & CompRef)
+  | ({ type: "template.fill"; values: Record<string, unknown> } & CompRef)
   | ({ type: "prop.setExpression"; expression: string | null } & PropRef)
   | ({ type: "shape.addOperator"; operator: "repeater" | "offsetPath" } & LayerRef)
   | ({ type: "shape.removeOperator"; operator: "repeater" | "offsetPath" } & LayerRef)
@@ -313,6 +320,7 @@ export function applyCommand(p: Project, cmd: Command): unknown {
         if (l.parentId) l.parentId = idMap.get(l.parentId) ?? null;
         if (l.matte) l.matte = { ...l.matte, layerId: idMap.get(l.matte.layerId) ?? l.matte.layerId };
       }
+      if (copy.template) copy.template.fields = copy.template.fields.map((f) => ({ ...f, id: newId("field"), layerId: idMap.get(f.layerId) ?? f.layerId }));
       copy.id = cmd.newId ?? newId("comp");
       if (p.compositions.some((c) => c.id === copy.id)) throw new CommandError("Composition id exists");
       copy.name = cmd.name ?? `${src.name} copy`;
@@ -368,6 +376,10 @@ export function applyCommand(p: Project, cmd: Command): unknown {
       for (const l of c.layers) {
         if (l.parentId && ids.has(l.parentId)) l.parentId = null;
         if (l.matte && ids.has(l.matte.layerId)) l.matte = null;
+      }
+      if (c.template) {
+        c.template.fields = c.template.fields.filter((f) => !ids.has(f.layerId));
+        if (!c.template.fields.length) delete c.template;
       }
       return;
     }
@@ -610,6 +622,91 @@ export function applyCommand(p: Project, cmd: Command): unknown {
       l.animators = l.animators.filter((a) => a.id !== cmd.animatorId);
       return;
     }
+    case "brand.set": {
+      if (cmd.brand === null) {
+        delete p.brand;
+        return;
+      }
+      const b = cmd.brand;
+      if (!b || typeof b.name !== "string" || !Array.isArray(b.colors) || !Array.isArray(b.fonts)) throw new CommandError("A brand kit needs name, colors and fonts");
+      const names = new Set<string>();
+      for (const c of b.colors) {
+        if (!c.name?.trim()) throw new CommandError("Every brand colour needs a name");
+        if (names.has(c.name)) throw new CommandError(`Duplicate brand colour "${c.name}"`);
+        names.add(c.name);
+        checkValueType("#000000", c.color, `brand colour ${c.name}`);
+      }
+      for (const fo of b.fonts) if (!fo.name?.trim() || !fo.family?.trim()) throw new CommandError("Every brand font needs a name and a family");
+      p.brand = {
+        name: b.name.slice(0, 80),
+        colors: b.colors.map((c) => ({ name: c.name.slice(0, 40), color: c.color })),
+        fonts: b.fonts.map((fo) => ({ name: fo.name.slice(0, 40), family: fo.family.slice(0, 200), weight: Number(fo.weight) || 400 })),
+      };
+      return;
+    }
+    case "template.addField": {
+      const c = getComp(p, cmd.compId);
+      const l = getLayer(c, cmd.layerId);
+      let kind: TemplateField["kind"];
+      if (cmd.path === "text") {
+        if (l.type !== "text") throw new CommandError("Only text layers have a text field");
+        kind = "text";
+      } else {
+        const pr = needProp(l, cmd.path);
+        const v = pr.value;
+        kind = typeof v === "number" ? "number" : typeof v === "string" ? "color" : Array.isArray(v) ? "vec2" : (() => {
+          throw new CommandError("Paths cannot be template fields");
+        })();
+      }
+      if (!cmd.name?.trim()) throw new CommandError("A field needs a name");
+      c.template ??= { fields: [] };
+      if (c.template.fields.some((f) => f.name === cmd.name.trim())) throw new CommandError(`There is already a field named "${cmd.name.trim()}"`);
+      const field: TemplateField = { id: cmd.id ?? newId("field"), name: cmd.name.trim().slice(0, 60), layerId: l.id, path: cmd.path, kind };
+      c.template.fields.push(field);
+      return { fieldId: field.id };
+    }
+    case "template.updateField": {
+      const c = getComp(p, cmd.compId);
+      const f = c.template?.fields.find((x) => x.id === cmd.fieldId);
+      if (!f) throw new CommandError(`Field not found: ${cmd.fieldId}`);
+      if (!cmd.name?.trim()) throw new CommandError("A field needs a name");
+      f.name = cmd.name.trim().slice(0, 60);
+      return;
+    }
+    case "template.removeField": {
+      const c = getComp(p, cmd.compId);
+      if (!c.template) throw new CommandError("This composition is not a template");
+      c.template.fields = c.template.fields.filter((x) => x.id !== cmd.fieldId);
+      if (!c.template.fields.length) delete c.template;
+      return;
+    }
+    case "template.fill": {
+      const c = getComp(p, cmd.compId);
+      const fields = c.template?.fields ?? [];
+      for (const [key, v] of Object.entries(cmd.values ?? {})) {
+        const f = fields.find((x) => x.id === key) ?? fields.find((x) => x.name.toLowerCase() === key.toLowerCase());
+        if (!f) throw new CommandError(`No template field "${key}" (fields: ${fields.map((x) => x.name).join(", ") || "none"})`);
+        const l = getLayer(c, f.layerId);
+        if (f.kind === "text") {
+          if (l.type !== "text") throw new CommandError(`Field "${f.name}" no longer points at a text layer`);
+          if (typeof v !== "string") throw new CommandError(`Field "${f.name}" needs text`);
+          l.text = v.slice(0, 10000);
+          continue;
+        }
+        const pr = needProp(l, f.path);
+        checkValueType(pr.value, v as AnimValue, f.name);
+        if (pr.keyframes?.length) {
+          // An animated field keeps its motion: shift every keyframe by the change at the first one.
+          if (typeof v === "string") pr.keyframes.forEach((k) => (k.v = v));
+          else {
+            const d = typeof v === "number" ? v - (pr.keyframes[0].v as number) : [(v as Vec2)[0] - (pr.keyframes[0].v as Vec2)[0], (v as Vec2)[1] - (pr.keyframes[0].v as Vec2)[1]];
+            pr.keyframes.forEach((k) => (k.v = typeof d === "number" ? (k.v as number) + d : [(k.v as Vec2)[0] + d[0], (k.v as Vec2)[1] + d[1]]));
+          }
+        }
+        pr.value = v as AnimValue;
+      }
+      return;
+    }
     case "prop.setExpression": {
       const l = getLayer(getComp(p, cmd.compId), cmd.layerId);
       const pr = needProp(l, cmd.path);
@@ -700,6 +797,13 @@ export function applyCommand(p: Project, cmd: Command): unknown {
       for (const l of c.layers) {
         if (l.parentId && ids.has(l.parentId)) l.parentId = null;
         if (l.matte && ids.has(l.matte.layerId)) l.matte = null;
+      }
+      // Template fields follow their layers into the new comp.
+      if (c.template) {
+        const moving = c.template.fields.filter((f) => ids.has(f.layerId));
+        if (moving.length) child.template = { fields: moving };
+        c.template.fields = c.template.fields.filter((f) => !ids.has(f.layerId));
+        if (!c.template.fields.length) delete c.template;
       }
       p.compositions.push(child);
       const pre = makeLayer("precomp", c, { compId: child.id, name: child.name }) as PrecompLayer;

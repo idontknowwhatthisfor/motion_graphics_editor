@@ -147,8 +147,14 @@ offset paths (ED-09: ShapeLayer.repeater / offsetPath, shape.addOperator,
 geometry.ts repeatMatrix / offsetPathD). Tests in tests/m2b.test.ts. MCP has
 30 tools; keep it at 30 or fewer (tests/mcp.test.ts).
 
-Remaining batches: (3 done) + repeaters/path
-offset (ED-12, ED-09); 4 brand kits + templates (ED-15, ED-16); 5 audio and
+Batch 4 done: brand kits (ED-15: Project.brand, brand.set, expression
+brand("Name"), swatches in colour rows, saved kits in library/brand-kits/)
+and templates (ED-16: Composition.template.fields, template.addField/fill,
+TemplateDialog, library/templates/<name>/ with assets, "New from template").
+library/ is gitignored like projects/. MCP: fill_template; export_cancel was
+folded into export_status {cancel} to stay at 30 tools.
+
+Remaining batches: 5 audio and
 video layers (ED-14, ED-23); 6 Claude extras (CL-09..CL-12).
 
 Then, in PRD order:

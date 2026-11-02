@@ -71,6 +71,7 @@ export function summarizeProject(s: EditorState) {
       duration: c.duration,
       background: c.background ?? "transparent",
       markers: c.markers.map((m) => ({ t: m.t, label: m.label })),
+      ...(c.template ? { templateFields: c.template.fields.map((f) => ({ id: f.id, name: f.name, kind: f.kind, layerId: f.layerId, path: f.path })) } : {}),
       layers: c.layers.map((l, i) => ({
         index: i,
         id: l.id,
@@ -88,6 +89,7 @@ export function summarizeProject(s: EditorState) {
           .map((p) => p.path),
       })),
     })),
+    ...(s.project.brand ? { brand: s.project.brand } : {}),
     assets: s.project.assets.map((a) => ({ id: a.id, name: a.name, kind: a.kind, width: a.width, height: a.height })),
     pendingChangeSets: s.changeSets.filter((c) => c.status === "open" || c.status === "pending"),
   };
@@ -397,6 +399,12 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
     },
   );
   tool(
+    "fill_template",
+    "Fill a template composition's named fields (see templateFields in get_project), e.g. {\"Name\": \"Ada Lovelace\", \"Accent\": \"#22c55e\"}. Keys are field names or ids; text fields take text, colour fields '#rrggbb', number fields a number, vec2 fields [x, y]. Animated fields keep their motion and move by the change. To define fields, use batch with template.addField {layerId, path (\"text\" or a property path), name}.",
+    { values: z.record(z.union([z.string(), z.number(), vec2])), compId },
+    async (a) => edit([{ type: "template.fill", compId: a.compId, values: a.values }], "Fill template"),
+  );
+  tool(
     "precompose",
     "Move layers into a new composition and replace them with one nested comp layer (keeps their timing and look). Use it to build reusable pieces and to animate a group as one.",
     { layerIds: z.array(z.string()).min(1), name: z.string().optional(), compId },
@@ -484,7 +492,7 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
   // ----- Apply in bulk -----
   tool(
     "batch",
-    "Run many raw Command API commands as ONE atomic edit (all or nothing). Commands: layer.add {layerType, opts}, layer.update {layerId, patch}, layer.delete {layerIds}, layer.reorder {layerId, toIndex}, layer.duplicate, layer.split {layerId, t}, layer.shiftTime {layerIds, delta}, prop.set {layerId, path, value, t?}, prop.setKeyframes {layerId, path, keyframes:[{t, v, ease?}]}, keyframe.add/remove/move/update/setEase, marker.add, mask.add, geometry.add {layerId, kind}, animator.add, effect.add {layerId, kind}, effect.update {layerId, effectId, enabled?, toIndex?}, effect.remove, comp.precompose {layerIds}, prop.setExpression {layerId, path, expression}, shape.addOperator {layerId, operator: repeater|offsetPath}, comp.update, comp.resize, comp.duplicate. Ease objects: {kind:'linear'|'hold'} or {kind:'bezier',x1,y1,x2,y2}.",
+    "Run many raw Command API commands as ONE atomic edit (all or nothing). Commands: layer.add {layerType, opts}, layer.update {layerId, patch}, layer.delete {layerIds}, layer.reorder {layerId, toIndex}, layer.duplicate, layer.split {layerId, t}, layer.shiftTime {layerIds, delta}, prop.set {layerId, path, value, t?}, prop.setKeyframes {layerId, path, keyframes:[{t, v, ease?}]}, keyframe.add/remove/move/update/setEase, marker.add, mask.add, geometry.add {layerId, kind}, animator.add, effect.add {layerId, kind}, effect.update {layerId, effectId, enabled?, toIndex?}, effect.remove, comp.precompose {layerIds}, prop.setExpression {layerId, path, expression}, template.addField {layerId, path, name}, template.removeField {fieldId}, brand.set {brand: {name, colors:[{name, color}], fonts:[{name, family, weight}]}}, shape.addOperator {layerId, operator: repeater|offsetPath}, comp.update, comp.resize, comp.duplicate. Ease objects: {kind:'linear'|'hold'} or {kind:'bezier',x1,y1,x2,y2}.",
     { commands: z.array(z.object({ type: z.string() }).passthrough()).min(1).max(500), label: z.string().default("Batch edit") },
     async (a) => {
       const banned = a.commands.find((c) => c.type === "project.setPermissionMode" || c.type.startsWith("asset."));
@@ -502,20 +510,15 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
   );
   tool(
     "export_status",
-    "Progress of an export job.",
-    { id: z.string() },
+    "Progress of an export job; pass cancel: true to stop it.",
+    { id: z.string(), cancel: z.boolean().optional() },
     async (a) => {
       const base = port.httpBase();
       if (!base) throw new Error("Editor server not running");
+      if (a.cancel) await fetch(`${base}/api/export/cancel?id=${encodeURIComponent(a.id)}`, { method: "POST" });
       return (await fetch(`${base}/api/export/status?id=${encodeURIComponent(a.id)}`)).json();
     },
-    true,
   );
-  tool("export_cancel", "Cancel an export job.", { id: z.string() }, async (a) => {
-    const base = port.httpBase();
-    if (!base) throw new Error("Editor server not running");
-    return (await fetch(`${base}/api/export/cancel?id=${encodeURIComponent(a.id)}`, { method: "POST" })).json();
-  });
 }
 
 /** Read-only resources (CL-03). */
@@ -535,6 +538,7 @@ export const SERVER_INSTRUCTIONS = `Motion Graphics Editor: you edit the user's 
 - Layers stack top-first (index 0 is on top). Shapes are centred on their position; text sits on its baseline.
 - Property paths: transform.{anchor,position,scale,rotation,opacity}, fill.paint.color, stroke.width, trim.{start,end,offset}, style.{size,tracking,fill}, geometry.<id>.{size,position,roundness}, animators.<id>.selector.{start,end,offset}, masks.<id>.path, effects.<id>.<param>. get_layer lists every path.
 - Effects (add_effect): blur, glow, dropShadow, colorCorrect, gradientOverlay. Nested comps: precompose, or add_layer type precomp with nestedCompId.
+- Brand: get_project shows the brand kit; use its colours and fonts, and expression brand(\"Primary\") to keep a colour linked. Templates: fill_template.
 - Procedural motion: set_expression (wiggle, loopOut, links to other layers) instead of hundreds of keyframes; add_shape_operator for repeaters (rows, rings) and offset paths.
 - Your edits land in a change set the user previews and keeps or rejects. Workflow: begin_change_set -> edits (prefer batch for many edits) -> render_frame / render_contact_sheet to check -> fix -> submit_change_set.
 - "this"/"these" in the user's request means the current selection: use get_selection or pass "selected" as a layerId.

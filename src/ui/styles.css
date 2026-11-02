@@ -172,3 +172,4 @@ button.danger { border-color: var(--danger); color: #fecaca; }
 .expr textarea { width: 100%; font-family: Menlo, monospace; font-size: 11px; background: #0e0f12; color: #fbbf24; border: 1px solid var(--line); border-radius: 3px; padding: 4px; resize: vertical; box-sizing: border-box; }
 .expr-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 2px; }
 .expr-err { color: #f87171; }
+.swatch { width: 16px; height: 16px; padding: 0; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; }
