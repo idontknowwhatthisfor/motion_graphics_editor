@@ -107,7 +107,12 @@ export function Timeline() {
   // name column (and the empty area under it), so hide it there.
   const syncPlayhead = () => {
     const b = bodyRef.current;
-    if (b && playheadRef.current) playheadRef.current.style.visibility = time * zoom < b.scrollLeft ? "hidden" : "";
+    if (!b || !playheadRef.current) return;
+    playheadRef.current.style.visibility = time * zoom < b.scrollLeft ? "hidden" : "";
+    // Span every row, not just the first screenful (bottom: 0 stops at the
+    // visible height of the scroll box).
+    playheadRef.current.style.height = "0";
+    playheadRef.current.style.height = `${b.scrollHeight}px`;
   };
   useLayoutEffect(syncPlayhead);
 

@@ -103,6 +103,22 @@ export function createStoreMiddleware(cfg: { root: string; bridgeToken: () => st
         const file = resolve(ROOT, "." + decodeURIComponent(path));
         if (!file.startsWith(PROJECTS) || !existsSync(file) || !statSync(file).isFile()) return json(res, 404, { error: "not found" });
         res.setHeader("content-type", MIME[extname(file).toLowerCase()] ?? "application/octet-stream");
+        // Byte ranges let the browser seek audio/video; without them Chrome
+        // ignores currentTime and plays from the start.
+        const size = statSync(file).size;
+        res.setHeader("accept-ranges", "bytes");
+        const m = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? "");
+        if (m && (m[1] || m[2])) {
+          const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+          const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+          if (start > end || start >= size) {
+            res.writeHead(416, { "content-range": `bytes */${size}` });
+            return res.end();
+          }
+          res.writeHead(206, { "content-range": `bytes ${start}-${end}/${size}`, "content-length": end - start + 1 });
+          return createReadStream(file, { start, end }).pipe(res);
+        }
+        res.setHeader("content-length", size);
         return createReadStream(file).pipe(res);
       }
       if (!path.startsWith("/api/")) return next();

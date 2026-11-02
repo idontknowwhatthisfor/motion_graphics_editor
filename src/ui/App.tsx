@@ -203,8 +203,15 @@ export function App() {
     let raf = 0;
     let last = performance.now();
     let acc = getUI().time;
+    let shown = acc;
     const tick = (now: number) => {
       const c = activeComp();
+      // The playhead was moved during playback: continue from there.
+      if (getUI().time !== shown) {
+        acc = getUI().time;
+        stopAudio();
+        stopAudio = playAudio(editor.project, c, acc);
+      }
       acc += (now - last) / 1000;
       last = now;
       if (acc >= c.duration) {
@@ -214,6 +221,7 @@ export function App() {
       }
       const frameTime = Math.floor(acc * c.fps) / c.fps; // frame-accurate, like export
       if (frameTime !== getUI().time) setUI({ time: frameTime });
+      shown = frameTime;
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);

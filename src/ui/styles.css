@@ -130,7 +130,7 @@ textarea { width: 100%; resize: vertical; }
 .kf.ease-hold { border-radius: 0; background: #9ca3af; }
 .kf.ease-bezier { border-radius: 3px; }
 .kf.sel { background: var(--accent); }
-.playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--accent); pointer-events: none; z-index: 5; }
+.playhead { position: absolute; top: 0; width: 1px; background: var(--accent); pointer-events: none; z-index: 5; }
 
 /* graph editor */
 .graph { border-top: 1px solid var(--line); background: #15171b; flex-shrink: 0; }
