@@ -57,6 +57,7 @@ set(
   JSON.stringify([
     { CFBundleTypeName: "Motion Graphics Project", CFBundleTypeRole: "Editor", LSHandlerRank: "Alternate", LSItemContentTypes: ["public.json"] },
     { CFBundleTypeName: "Image", CFBundleTypeRole: "Viewer", LSHandlerRank: "Alternate", LSItemContentTypes: ["public.png", "public.jpeg", "public.svg-image"] },
+    { CFBundleTypeName: "Audio", CFBundleTypeRole: "Viewer", LSHandlerRank: "Alternate", LSItemContentTypes: ["com.microsoft.waveform-audio", "public.mp3", "public.mpeg-4-audio", "public.aiff-audio"] },
     { CFBundleTypeName: "Movie", CFBundleTypeRole: "Viewer", LSHandlerRank: "Alternate", LSItemContentTypes: ["public.mpeg-4", "com.apple.quicktime-movie", "org.webmproject.webm"] },
   ]),
 );

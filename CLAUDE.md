@@ -154,16 +154,19 @@ TemplateDialog, library/templates/<name>/ with assets, "New from template").
 library/ is gitignored like projects/. MCP: fill_template; export_cancel was
 folded into export_status {cancel} to stay at 30 tools.
 
-Remaining batches: 5 audio and
-video layers (ED-14, ED-23); 6 Claude extras (CL-09..CL-12).
+Batch 5 done: audio layers (ED-14: AudioLayer with volume Prop and
+mediaOffset, waveform on the timeline bar, Detect beats writes "beat"
+markers via core/beats.ts, playback through WebAudio) and video layers in
+export (ED-23: VideoLayer with role reference|export; export extracts stills
+with FFmpeg into .cache/stills/ and the compiler points at them; audio is
+mixed and muxed in a second FFmpeg pass: pcm_s24le MOV, aac MP4, opus WebM).
+
+Remaining batch: 6 Claude extras (CL-09..CL-12).
 
 Then, in PRD order:
 1. Resolve-ready export polish and Gate 1 (kp finishes a 15 s overlay by hand).
 2. Mask path and gradient handles in the viewer; local font list.
-3. P1 Claude items: MCP elicitation for missing input (CL-10), prompts such
-   as Make variants / Retime to audio (CL-11), a bundled skill (CL-12),
-   export progress notifications (CL-09).
-4. Frame cache for half-res playback if live SVG playback is too slow on the
+3. Frame cache for half-res playback if live SVG playback is too slow on the
    M1 with 30 layers (measure first).
 
 

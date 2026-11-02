@@ -6,6 +6,8 @@ import type {
   Layer,
   LayerType,
   NullLayer,
+  VideoLayer,
+  AudioLayer,
   OffsetPath,
   Repeater,
   PrecompLayer,
@@ -180,6 +182,14 @@ export function makeLayer(type: LayerType, comp: Pick<Composition, "width" | "he
         mediaOffset: 0,
         locked: true,
       };
+      return l;
+    }
+    case "video": {
+      const l: VideoLayer = { ...common(comp, o, "Video", [(o.width ?? comp.width) / 2, (o.height ?? comp.height) / 2]), type, assetId: o.assetId ?? "", mediaOffset: 0 };
+      return l;
+    }
+    case "audio": {
+      const l: AudioLayer = { ...common(comp, o, "Audio"), type, assetId: o.assetId ?? "", mediaOffset: 0, volume: prop(100) };
       return l;
     }
     case "precomp": {

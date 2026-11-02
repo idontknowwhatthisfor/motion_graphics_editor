@@ -33,6 +33,6 @@ export const toFile = (f: NativeFile) => new File([f.data], f.name, { type: gues
 function guessType(name: string): string {
   const ext = name.toLowerCase().split(".").pop() ?? "";
   return (
-    { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm", json: "application/json" } as Record<string, string>
+    { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", svg: "image/svg+xml", mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm", json: "application/json", wav: "audio/wav", mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", aif: "audio/aiff", aiff: "audio/aiff" } as Record<string, string>
   )[ext] ?? "application/octet-stream";
 }

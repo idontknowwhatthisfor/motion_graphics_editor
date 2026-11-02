@@ -11,6 +11,7 @@ import { activeComp, editor, getUI, newBlankProject, run, setTime, setUI, toast,
 import { Timeline } from "./Timeline";
 import { Viewer } from "./Viewer";
 import { native, toFile } from "./native";
+import { playAudio } from "./audio";
 
 const TOOLS: [Tool, string, string][] = [
   ["select", "V", "Select / move"],
@@ -23,18 +24,20 @@ const TOOLS: [Tool, string, string][] = [
 async function importFiles(files: FileList | File[]) {
   for (const file of Array.from(files)) {
     const isVideo = /^video\//.test(file.type) || /\.(mp4|mov|webm|m4v)$/i.test(file.name);
+    const isAudio = /^audio\//.test(file.type) || /\.(wav|mp3|m4a|aac|aif|aiff)$/i.test(file.name);
     const isImage = /^image\/(png|jpeg|svg\+xml)$/.test(file.type) || /\.(png|jpe?g|svg)$/i.test(file.name);
-    if (!isVideo && !isImage) {
-      toast(`Unsupported file: ${file.name} (SVG, PNG, JPG, or a video as reference)`, "error");
+    if (!isVideo && !isImage && !isAudio) {
+      toast(`Unsupported file: ${file.name} (SVG, PNG, JPG, MP4, MOV, WebM, WAV, MP3)`, "error");
       continue;
     }
     try {
       const url = URL.createObjectURL(file);
       const dims = await new Promise<{ w: number; h: number; d?: number }>((res, rej) => {
-        if (isVideo) {
-          const v = document.createElement("video");
-          v.onloadedmetadata = () => res({ w: v.videoWidth, h: v.videoHeight, d: v.duration });
-          v.onerror = () => rej(new Error("Cannot read video (try MP4/H.264)"));
+        if (isVideo || isAudio) {
+          const v = document.createElement(isVideo ? "video" : "audio");
+          v.onloadedmetadata = () => res({ w: (v as HTMLVideoElement).videoWidth || 0, h: (v as HTMLVideoElement).videoHeight || 0, d: v.duration });
+          // Chrome cannot preview every codec (e.g. ProRes); the export still reads it with FFmpeg.
+          v.onerror = () => (isVideo ? res({ w: 1920, h: 1080 }) : rej(new Error("Cannot read this audio file")));
           v.src = url;
         } else {
           const i = new Image();
@@ -45,28 +48,30 @@ async function importFiles(files: FileList | File[]) {
       });
       URL.revokeObjectURL(url);
       const src = await uploadAsset(file);
-      const asset: Asset = { id: newId("asset"), name: file.name, kind: isVideo ? "video" : file.name.toLowerCase().endsWith(".svg") ? "svg" : "image", src, width: dims.w, height: dims.h, ...(dims.d ? { duration: dims.d } : {}) };
+      const kind: Asset["kind"] = isVideo ? "video" : isAudio ? "audio" : file.name.toLowerCase().endsWith(".svg") ? "svg" : "image";
+      const asset: Asset = { id: newId("asset"), name: file.name, kind, src, width: dims.w, height: dims.h, ...(dims.d && Number.isFinite(dims.d) ? { duration: dims.d } : {}) };
       const comp = activeComp();
+      const outPoint = dims.d && Number.isFinite(dims.d) && (isVideo || isAudio) ? Math.min(comp.duration, dims.d) : comp.duration;
       const r = run(
         [
           { type: "asset.add", asset },
           {
             type: "layer.add",
-            layerType: isVideo ? "reference" : "image",
-            index: isVideo ? comp.layers.length : 0,
-            opts: { name: file.name, assetId: asset.id, width: dims.w, height: dims.h, position: [comp.width / 2, comp.height / 2] },
+            layerType: isVideo ? "video" : isAudio ? "audio" : "image",
+            index: isVideo || isAudio ? comp.layers.length : 0,
+            opts: { name: file.name, assetId: asset.id, width: dims.w, height: dims.h, position: [comp.width / 2, comp.height / 2], outPoint },
           },
         ],
         { label: `Import ${file.name}` },
       );
       if (r.ok) {
         const id = (r.results[1] as { layerId: string }).layerId;
-        if (isVideo) {
-          // fit the reference video to the comp
+        if (isVideo && dims.w && dims.h && (dims.w !== comp.width || dims.h !== comp.height)) {
           const s = Math.min(comp.width / dims.w, comp.height / dims.h) * 100;
           run({ type: "prop.set", layerId: id, path: "transform.scale", value: [s, s] }, { coalesceKey: `imp-${id}` });
-          toast("Reference video added. It is shown here but left out of every export.");
         }
+        if (isVideo) toast("Video added. It is exported; switch it to Reference in the Inspector to keep it out of exports.");
+        if (isAudio) toast("Audio added. Select it and use Detect beats to drop beat markers.");
         setUI({ selection: [id] });
       }
     } catch (e) {
@@ -202,13 +207,19 @@ export function App() {
       const c = activeComp();
       acc += (now - last) / 1000;
       last = now;
-      if (acc >= c.duration) acc = 0;
+      if (acc >= c.duration) {
+        acc = 0;
+        stopAudio();
+        stopAudio = playAudio(editor.project, c, 0);
+      }
       const frameTime = Math.floor(acc * c.fps) / c.fps; // frame-accurate, like export
       if (frameTime !== getUI().time) setUI({ time: frameTime });
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
+    let stopAudio = playAudio(editor.project, activeComp(), acc);
     return () => {
+      stopAudio();
       cancelAnimationFrame(raf);
       setTime(getUI().time);
     };
@@ -363,7 +374,7 @@ export function App() {
           <option value="precompose" disabled={!selection.length}>Precompose selection</option>
         </select>
         <button onClick={() => (native ? native.pick("import") : fileRef.current?.click())} title="Import SVG, PNG, JPG, or a reference video (or drag files onto the window)">Import</button>
-        <input ref={fileRef} type="file" multiple hidden accept=".svg,.png,.jpg,.jpeg,.mp4,.mov,.webm" onChange={(e) => e.target.files && importFiles(e.target.files)} />
+        <input ref={fileRef} type="file" multiple hidden accept=".svg,.png,.jpg,.jpeg,.mp4,.mov,.webm,.m4v,.wav,.mp3,.m4a,.aac,.aif,.aiff" onChange={(e) => e.target.files && importFiles(e.target.files)} />
         <label className="small" title="Show reference video layers (never exported)"><input type="checkbox" checked={showReference} onChange={(e) => setUI({ showReference: e.target.checked })} /> Ref</label>
         <span className="spacer" />
         <button disabled={!editor.canUndo} onClick={() => editor.undo()} title="Undo (Cmd+Z)">↶</button>

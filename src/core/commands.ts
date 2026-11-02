@@ -89,6 +89,7 @@ export type Command =
   | ({ type: "template.updateField"; fieldId: string; name: string } & CompRef)
   | ({ type: "template.removeField"; fieldId: string } & CompRef)
   | ({ type: "template.fill"; values: Record<string, unknown> } & CompRef)
+  | ({ type: "layer.setVideoRole"; role: "video" | "reference" } & LayerRef)
   | ({ type: "prop.setExpression"; expression: string | null } & PropRef)
   | ({ type: "shape.addOperator"; operator: "repeater" | "offsetPath" } & LayerRef)
   | ({ type: "shape.removeOperator"; operator: "repeater" | "offsetPath" } & LayerRef)
@@ -354,7 +355,7 @@ export function applyCommand(p: Project, cmd: Command): unknown {
         layer = makeLayer(cmd.layerType, c, cmd.opts ?? {});
         if (cmd.opts && (cmd.opts as { id?: string }).id) layer.id = (cmd.opts as { id?: string }).id!;
       }
-      if ((layer.type === "image" || layer.type === "reference") && !p.assets.some((a) => a.id === layer.assetId))
+      if ("assetId" in layer && !p.assets.some((a) => a.id === layer.assetId))
         throw new CommandError(`Asset not found: ${(layer as { assetId: string }).assetId}`);
       if (layer.type === "precomp") {
         checkPrecomp(p, c, layer.compId);
@@ -622,6 +623,16 @@ export function applyCommand(p: Project, cmd: Command): unknown {
       l.animators = l.animators.filter((a) => a.id !== cmd.animatorId);
       return;
     }
+    case "layer.setVideoRole": {
+      const c = getComp(p, cmd.compId);
+      const i = c.layers.findIndex((l) => l.id === cmd.layerId);
+      if (i < 0) throw new CommandError(`Layer not found: ${cmd.layerId}`);
+      const l = c.layers[i];
+      if (l.type !== "video" && l.type !== "reference") throw new CommandError("Only video layers can switch between exported video and reference");
+      if (cmd.role !== "video" && cmd.role !== "reference") throw new CommandError("role must be video or reference");
+      c.layers[i] = { ...l, type: cmd.role } as Layer;
+      return;
+    }
     case "brand.set": {
       if (cmd.brand === null) {
         delete p.brand;
@@ -817,7 +828,7 @@ export function applyCommand(p: Project, cmd: Command): unknown {
       return { assetId: cmd.asset.id };
     case "asset.remove": {
       const used = p.compositions.some((c) =>
-        c.layers.some((l) => (l.type === "image" || l.type === "reference") && l.assetId === cmd.assetId),
+        c.layers.some((l) => "assetId" in l && l.assetId === cmd.assetId),
       );
       if (used) throw new CommandError("Asset is used by a layer");
       p.assets = p.assets.filter((a) => a.id !== cmd.assetId);

@@ -173,3 +173,7 @@ button.danger { border-color: var(--danger); color: #fecaca; }
 .expr-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; margin-top: 2px; }
 .expr-err { color: #f87171; }
 .swatch { width: 16px; height: 16px; padding: 0; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; }
+.waveform { position: absolute; left: 0; top: 50%; transform: translateY(-50%); pointer-events: none; }
+.waveform polygon { fill: rgba(255,255,255,.55); }
+.bar.t-audio { background: #0f766e; }
+.bar.t-video { background: #7c3aed; }

@@ -26,6 +26,8 @@ export interface CompileOptions {
   assetUrl?: (a: Asset) => string;
   /** Composition id used in the HTML (default "main"). */
   htmlCompositionId?: string;
+  /** Video assets already extracted to numbered stills (ED-23), by asset id. */
+  videoFrames?: Record<string, { pattern: string; fps: number; count: number }>;
 }
 
 export interface CompiledComposition {
@@ -65,18 +67,23 @@ export function compileToHyperFrames(project: Project, opts: CompileOptions): Co
     for (const l of c.layers) if (l.type === "precomp") visit(l.compId);
   };
   visit(comp.id);
+  // Images are copied; videos too unless the exporter turned them into stills. Audio is mixed by FFmpeg, not drawn.
   const usedAssetIds = new Set(
-    needed.flatMap((c) => c.layers.filter((l) => l.type === "image").map((l) => (l as { assetId: string }).assetId)),
+    needed.flatMap((c) => c.layers.filter((l) => l.type === "image" || l.type === "video").map((l) => (l as { assetId: string }).assetId)),
   );
-  const assets = project.assets.filter((a) => usedAssetIds.has(a.id));
+  const frames = opts.videoFrames ?? {};
+  const assets = project.assets.filter((a) => usedAssetIds.has(a.id) && !frames[a.id]);
   const slim: Project = {
     ...project,
     compositions: needed,
-    assets: assets.map((a) => ({ ...a, src: assetUrl(a) })),
+    assets: project.assets
+      .filter((a) => usedAssetIds.has(a.id))
+      .map((a) => (frames[a.id] ? { ...a, src: "", frames: frames[a.id] } : { ...a, src: assetUrl(a) })),
     activeCompId: comp.id,
   };
 
   const preload = assets
+    .filter((a) => a.kind !== "video")
     .map((a) => `<img src="${esc(assetUrl(a))}" alt="" style="position:absolute;width:1px;height:1px;opacity:0;pointer-events:none">`)
     .join("\n      ");
 

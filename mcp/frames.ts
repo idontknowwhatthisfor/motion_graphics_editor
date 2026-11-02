@@ -27,7 +27,7 @@ export type FrameBackground = "checker" | "transparent" | string;
 export async function renderFrames(project: Project, projectDir: string, compId: string, times: number[], scale: number, background: FrameBackground = "checker"): Promise<Buffer[]> {
   const comp = project.compositions.find((c) => c.id === compId) ?? project.compositions[0];
   const dir = join(ROOT, ".cache", "mcp-frames");
-  writeHyperFramesProject(project, projectDir, dir, comp.id);
+  writeHyperFramesProject(project, projectDir, dir, comp.id, { fps: comp.fps });
   const b = await getBrowser();
   const page = await openComposition(b, dir, comp.width, comp.height, scale);
   try {

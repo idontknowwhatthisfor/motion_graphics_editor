@@ -13,3 +13,4 @@ export * from "./project-io";
 export * from "./revert";
 export * from "./samples";
 export * from "./expressions";
+export * from "./beats";

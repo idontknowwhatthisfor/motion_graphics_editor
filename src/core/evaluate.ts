@@ -89,6 +89,9 @@ export type ResolvedContent =
   | { type: "image"; src: string; width: number; height: number }
   | { type: "null" }
   | { type: "reference"; src: string; width: number; height: number; mediaTime: number }
+  /** Exported video; frameSrc is set when the exporter extracted stills. */
+  | { type: "video"; src: string; width: number; height: number; mediaTime: number; frameSrc: string | null }
+  | { type: "audio" }
   | { type: "precomp"; width: number; height: number; scene: ResolvedScene | null };
 
 export type ResolvedEffect =
@@ -307,6 +310,18 @@ function resolveContent(layer: Layer, t: number, assets: Map<string, Asset>, ass
     case "image": {
       const a = assets.get(layer.assetId);
       return { type: "image", src: a ? assetUrl(a) : "", width: a?.width ?? 100, height: a?.height ?? 100 };
+    }
+    case "audio":
+      return { type: "audio" };
+    case "video": {
+      const a = assets.get(layer.assetId);
+      const mediaTime = Math.max(0, t - layer.inPoint + layer.mediaOffset);
+      let frameSrc: string | null = null;
+      if (a?.frames && a.frames.count > 0) {
+        const i = Math.max(0, Math.min(a.frames.count - 1, Math.floor(mediaTime * a.frames.fps + 1e-6)));
+        frameSrc = a.frames.pattern.replace("%05d", String(i + 1).padStart(5, "0"));
+      }
+      return { type: "video", src: a ? assetUrl(a) : "", width: a?.width ?? 1920, height: a?.height ?? 1080, mediaTime, frameSrc };
     }
     case "reference": {
       const a = assets.get(layer.assetId);

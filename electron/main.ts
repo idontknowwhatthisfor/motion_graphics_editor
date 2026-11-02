@@ -23,7 +23,7 @@ const PROD_PORT = 5199; // fixed so the page keeps its localStorage (last projec
 const DEV_PORT = 5198;
 const APP_NAME = "Motion Graphics";
 const PROJECTS = join(ROOT, "projects");
-const MEDIA_EXT = [".png", ".jpg", ".jpeg", ".svg", ".mp4", ".m4v", ".mov", ".webm"];
+const MEDIA_EXT = [".png", ".jpg", ".jpeg", ".svg", ".mp4", ".m4v", ".mov", ".webm", ".wav", ".mp3", ".m4a", ".aac", ".aif", ".aiff"];
 
 app.setName(APP_NAME);
 
@@ -244,7 +244,7 @@ async function pickImport() {
     title: "Import",
     properties: ["openFile", "multiSelections"],
     filters: [
-      { name: "Images and video", extensions: MEDIA_EXT.map((e) => e.slice(1)) },
+      { name: "Images, video and audio", extensions: MEDIA_EXT.map((e) => e.slice(1)) },
       { name: "Project", extensions: ["json"] },
     ],
   });

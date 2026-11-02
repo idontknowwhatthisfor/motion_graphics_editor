@@ -7,14 +7,15 @@
  *  2. Direct: Playwright screenshots with a transparent background piped
  *     into FFmpeg. Small, dependable fallback, also used for frame checks.
  */
-import { spawn } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Browser, Page } from "playwright";
 import { compileToHyperFrames, exportedAssetPath, type CompiledComposition } from "../../src/compiler/hyperframes";
-import type { Project } from "../../src/core/types";
+import { valueAt } from "../../src/core/interpolate";
+import type { AudioLayer, Project } from "../../src/core/types";
 
 export const ROOT = process.env.MGE_ROOT ?? resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const require = createRequire(import.meta.url);
@@ -25,10 +26,40 @@ export function runtimeJs(): string {
   return readFileSync(p, "utf8");
 }
 
-/** Write a self-contained HyperFrames project folder. */
-export function writeHyperFramesProject(project: Project, projectDir: string, outDir: string, compId?: string): CompiledComposition {
+/**
+ * Turn a video asset into numbered PNG stills at `fps` (ED-23), cached in
+ * .cache/stills/ until the source file changes. Chrome cannot seek every
+ * codec (ProRes, HEVC with alpha) frame-accurately; FFmpeg can.
+ */
+export function extractStills(src: string, assetId: string, fps: number): { pattern: string; fps: number; count: number } {
+  const st = statSync(src);
+  const dir = join(ROOT, ".cache", "stills", `${assetId}_${fps}_${Math.round(st.mtimeMs)}_${st.size}`);
+  const done = join(dir, "done.json");
+  if (!existsSync(done)) {
+    rmSync(dir, { recursive: true, force: true });
+    mkdirSync(dir, { recursive: true });
+    const r = spawnSync("ffmpeg", ["-v", "error", "-y", "-i", src, "-vf", `fps=${fps}`, "-pix_fmt", "rgba", join(dir, "%05d.png")], { encoding: "utf8" });
+    if (r.status !== 0) throw new Error(`Could not read video ${src}: ${r.stderr || r.error?.message}`);
+    writeFileSync(done, JSON.stringify({ count: readdirSync(dir).filter((f) => f.endsWith(".png")).length }));
+  }
+  const { count } = JSON.parse(readFileSync(done, "utf8")) as { count: number };
+  return { pattern: pathToFileURL(dir).href + "/%05d.png", fps, count };
+}
+
+/**
+ * Write a self-contained HyperFrames project folder. With `stills`, video
+ * layers are drawn from FFmpeg-extracted frames (direct exporter and frame
+ * checks); without it they stay <video> elements (HyperFrames CLI).
+ */
+export function writeHyperFramesProject(project: Project, projectDir: string, outDir: string, compId?: string, stills?: { fps: number }): CompiledComposition {
   mkdirSync(join(outDir, "assets"), { recursive: true });
-  const compiled = compileToHyperFrames(project, { compId, runtimeJs: runtimeJs(), gsapSrc: "assets/gsap.min.js" });
+  const videoFrames: Record<string, { pattern: string; fps: number; count: number }> = {};
+  if (stills) {
+    const videoAssetIds = new Set(project.compositions.flatMap((c) => c.layers.filter((l) => l.type === "video").map((l) => (l as { assetId: string }).assetId)));
+    for (const a of project.assets)
+      if (videoAssetIds.has(a.id) && !a.src.startsWith("data:")) videoFrames[a.id] = extractStills(isAbsolute(a.src) ? a.src : join(projectDir, a.src), a.id, stills.fps);
+  }
+  const compiled = compileToHyperFrames(project, { compId, runtimeJs: runtimeJs(), gsapSrc: "assets/gsap.min.js", videoFrames });
   writeFileSync(join(outDir, "index.html"), compiled.html);
   copyFileSync(require.resolve("gsap/dist/gsap.min.js"), join(outDir, "assets/gsap.min.js"));
   for (const a of compiled.assets) {
@@ -86,7 +117,13 @@ export async function openComposition(browser: Browser, htmlDir: string, width: 
 export async function seekAndShoot(page: Page, t: number): Promise<Buffer> {
   await page.evaluate((tt) => {
     (window as unknown as { __mgeSeek: (t: number) => void }).__mgeSeek(tt);
-    return new Promise((r) => requestAnimationFrame(() => r(null)));
+    // Video stills and images must be decoded before the screenshot.
+    const imgs = Array.from(document.querySelectorAll("image")).map((el) => {
+      const i = new Image();
+      i.src = el.getAttribute("href") ?? "";
+      return i.decode().catch(() => undefined);
+    });
+    return Promise.all(imgs).then(() => new Promise((r) => requestAnimationFrame(() => r(null))));
   }, t);
   return page.locator("#root").screenshot({ omitBackground: true, type: "png" });
 }
@@ -127,8 +164,10 @@ export async function exportDirect(project: Project, projectDir: string, compId:
   const fps = opts.fps ?? comp.fps;
   const scale = opts.width ? opts.width / comp.width : 1;
   const work = join(ROOT, ".cache", `export-${Date.now()}`);
-  writeHyperFramesProject(project, projectDir, work, comp.id);
+  writeHyperFramesProject(project, projectDir, work, comp.id, { fps });
   const total = Math.round(comp.duration * fps);
+  const audio = opts.format === "png" || opts.format === "gif" ? [] : audioInputs(project, comp.id, projectDir);
+  const videoOut = audio.length ? opts.out.replace(/(\.[a-z0-9]+)$/i, ".video$1") : opts.out;
   const browser = await launchBrowser();
   try {
     const page = await openComposition(browser, work, comp.width, comp.height, scale);
@@ -142,7 +181,7 @@ export async function exportDirect(project: Project, projectDir: string, compId:
       return { out: opts.out, frames: total };
     }
     mkdirSync(dirname(resolve(opts.out)), { recursive: true });
-    const ff = spawn("ffmpeg", ffmpegArgs(opts.format, fps, opts.out), { stdio: ["pipe", "inherit", "pipe"] });
+    const ff = spawn("ffmpeg", ffmpegArgs(opts.format, fps, videoOut), { stdio: ["pipe", "inherit", "pipe"] });
     let err = "";
     ff.stderr.on("data", (d) => (err += d));
     const done = new Promise<void>((res, rej) => ff.on("close", (code) => (code === 0 ? res() : rej(new Error(`ffmpeg failed (${code}): ${err}`)))));
@@ -157,9 +196,51 @@ export async function exportDirect(project: Project, projectDir: string, compId:
     }
     ff.stdin.end();
     await done;
+    if (audio.length) {
+      muxAudio(videoOut, audio, comp.duration, opts.format, opts.out);
+      rmSync(videoOut, { force: true });
+    }
     return { out: opts.out, frames: total };
   } finally {
     await browser.close();
+  }
+}
+
+type AudioInput = { file: string; start: number; offset: number; duration: number; volume: number };
+
+/** Audio layers of a comp (top level), as FFmpeg inputs (ED-14). */
+export function audioInputs(project: Project, compId: string, projectDir: string): AudioInput[] {
+  const comp = project.compositions.find((c) => c.id === compId);
+  if (!comp) return [];
+  const out: AudioInput[] = [];
+  for (const l of comp.layers) {
+    if (l.type !== "audio" || !l.visible) continue;
+    const a = project.assets.find((x) => x.id === (l as AudioLayer).assetId);
+    if (!a || a.src.startsWith("data:")) continue;
+    const start = Math.max(0, l.inPoint);
+    const end = Math.min(comp.duration, l.outPoint);
+    if (end <= start) continue;
+    out.push({ file: isAbsolute(a.src) ? a.src : join(projectDir, a.src), start, offset: Math.max(0, l.mediaOffset + (start - l.inPoint)), duration: end - start, volume: Math.max(0, valueAt((l as AudioLayer).volume, start)) / 100 });
+  }
+  return out;
+}
+
+/** FFmpeg arguments that lay the audio layers over the rendered video. */
+export function muxArgs(video: string, audio: AudioInput[], duration: number, format: ExportFormat, out: string): string[] {
+  const chains = audio.map((a, i) => {
+    const ms = Math.round(a.start * 1000);
+    return `[${i + 1}:a]atrim=start=${a.offset.toFixed(4)}:duration=${a.duration.toFixed(4)},asetpts=PTS-STARTPTS,volume=${a.volume.toFixed(3)},adelay=${ms}:all=1[a${i}]`;
+  });
+  const mix = `${audio.map((_, i) => `[a${i}]`).join("")}amix=inputs=${audio.length}:normalize=0:duration=longest,apad,atrim=0:${duration.toFixed(4)}[aout]`;
+  const codec = format === "mp4" ? ["-c:a", "aac", "-b:a", "256k"] : format === "webm" ? ["-c:a", "libopus", "-b:a", "192k"] : ["-c:a", "pcm_s24le"];
+  return ["-v", "error", "-y", "-i", video, ...audio.flatMap((a) => ["-i", a.file]), "-filter_complex", [...chains, mix].join(";"), "-map", "0:v", "-map", "[aout]", "-c:v", "copy", ...codec, "-t", duration.toFixed(4), out];
+}
+
+function muxAudio(video: string, audio: AudioInput[], duration: number, format: ExportFormat, out: string) {
+  const r = spawnSync("ffmpeg", muxArgs(video, audio, duration, format, out), { encoding: "utf8" });
+  if (r.status !== 0) {
+    renameSync(video, out); // keep the picture even if the sound fails
+    throw new Error(`Video exported without sound; audio mix failed: ${r.stderr || r.error?.message}`);
   }
 }
 

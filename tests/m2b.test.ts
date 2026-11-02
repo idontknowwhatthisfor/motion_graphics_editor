@@ -158,3 +158,27 @@ describe("brand kits (ED-15) and templates (ED-16)", () => {
     expect(comp(ed).template!.fields.map((f) => f.name)).toEqual(["Accent", "Where"]);
   });
 });
+
+describe("audio analysis (ED-14)", () => {
+  it("finds 120 BPM and its beat grid in a click track with noise", async () => {
+    const { detectBeats, waveformPeaks } = await import("../src/core/beats");
+    const sr = 22050;
+    const s = new Float32Array(sr * 8);
+    let seed = 1;
+    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647) * 2 - 1;
+    for (let i = 0; i < s.length; i++) s[i] = rnd() * 0.02;
+    for (let t = 0.25; t < 8; t += 0.5) for (let i = 0; i < 800; i++) s[Math.floor(t * sr) + i] += Math.sin(i / 3) * Math.exp(-i / 200);
+    const r = detectBeats(s, sr);
+    expect(r.bpm).toBeGreaterThan(117);
+    expect(r.bpm).toBeLessThan(123);
+    expect(r.onsets.length).toBeGreaterThanOrEqual(14);
+    const near = r.beats.filter((b) => {
+      const d = (((b - 0.25) % 0.5) + 0.5) % 0.5;
+      return d < 0.04 || d > 0.46;
+    });
+    expect(near.length / r.beats.length).toBeGreaterThan(0.8);
+    const peaks = waveformPeaks(s, 100);
+    expect(peaks.length).toBe(100);
+    expect(Math.max(...peaks)).toBeGreaterThan(0.5);
+  });
+});

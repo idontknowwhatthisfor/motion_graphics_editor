@@ -206,7 +206,8 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
     "add_layer",
     "Add a layer. Positions are composition pixels (origin top-left). Shapes are centred on their position; text sits on its baseline at its position. Returns the new layerId.",
     {
-      type: z.enum(["shape", "text", "solid", "null", "precomp"]),
+      type: z.enum(["shape", "text", "solid", "null", "precomp", "image", "video", "audio"]),
+      assetId: z.string().optional().describe("image/video/audio: an asset already in the project (see get_project assets)"),
       nestedCompId: z.string().optional().describe("precomp: the composition to nest (see get_project)"),
       name: z.string().optional(),
       position: vec2.optional(),

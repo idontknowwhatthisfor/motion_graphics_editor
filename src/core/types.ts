@@ -327,6 +327,23 @@ export interface ReferenceVideoLayer extends LayerCommon {
   mediaOffset: number;
 }
 
+/** Video that is part of the export (ED-23). Export draws it frame by frame from FFmpeg-extracted stills. */
+export interface VideoLayer extends LayerCommon {
+  type: "video";
+  assetId: string;
+  /** Seconds into the media at the layer's inPoint. */
+  mediaOffset: number;
+}
+/** Audio (ED-14): heard in preview and mixed into video exports; draws nothing. */
+export interface AudioLayer extends LayerCommon {
+  type: "audio";
+  assetId: string;
+  /** Seconds into the media at the layer's inPoint. */
+  mediaOffset: number;
+  /** 0–200 %, 100 = unchanged. */
+  volume: Prop<number>;
+}
+
 /** Nested composition (ED-02). */
 export interface PrecompLayer extends LayerCommon {
   type: "precomp";
@@ -337,6 +354,8 @@ export interface PrecompLayer extends LayerCommon {
 
 export type Layer =
   | PrecompLayer
+  | VideoLayer
+  | AudioLayer
   | SolidLayer
   | ShapeLayer
   | TextLayer
@@ -391,12 +410,14 @@ export interface Composition {
 export interface Asset {
   id: string;
   name: string;
-  kind: "image" | "svg" | "video";
+  kind: "image" | "svg" | "video" | "audio";
   /** Path relative to the project folder (`assets/x.png`) or a data: URL. */
   src: string;
   width: number;
   height: number;
   duration?: number;
+  /** Export only: the video as numbered stills (set by the exporter, never saved). */
+  frames?: { pattern: string; fps: number; count: number };
 }
 
 export type PermissionMode = "readOnly" | "ask" | "autoKeep";

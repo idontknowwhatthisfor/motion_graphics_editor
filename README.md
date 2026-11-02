@@ -73,8 +73,11 @@ DaVinci Resolve over a coloured clip and check the edges.
   `library/templates/`, and starts new projects from saved templates.
 - Click a property's stopwatch to animate it; click a property name in the
   timeline to open its curve in the graph editor.
-- Drag SVG/PNG/JPG onto the window to import. Drop a video to use it as a
-  reference layer; it is never exported.
+- Drag SVG/PNG/JPG, video (MP4/MOV) or audio (WAV/MP3) onto the window to
+  import. A video layer starts as a reference (not exported); switch its
+  Role to Export in the Inspector to render it into the file. Audio layers
+  show a waveform, play with Space, and Detect beats adds beat markers you
+  can snap keyframes to. Exports with audio layers include the mixed sound.
 - Projects autosave to `projects/<name>/`, with versions every 2 minutes.
 - Export › Resolve-ready preset writes ProRes 4444 with alpha to `renders/`.
   The dialog also offers WebM with alpha, GIF, MP4 and a PNG sequence.

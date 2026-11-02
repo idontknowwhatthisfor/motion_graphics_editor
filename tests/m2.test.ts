@@ -142,3 +142,29 @@ describe("export formats (ED-20)", () => {
     expect(gif).toContain("paletteuse");
   });
 });
+
+describe("video and audio layers (ED-14, ED-23)", () => {
+  it("video layers export from stills; audio mixes with offset, trim and volume", async () => {
+    const { muxArgs } = await import("../scripts/lib/node-export");
+    const ed = new Editor(makeProject());
+    ed.must({ type: "asset.add", asset: { id: "asset_v", name: "v.mov", kind: "video", src: "assets/v.mov", width: 640, height: 360 } });
+    ed.must({ type: "asset.add", asset: { id: "asset_r", name: "r.mov", kind: "video", src: "assets/r.mov", width: 640, height: 360 } });
+    const v = add(ed, "video", { assetId: "asset_v" });
+    const r = add(ed, "video", { assetId: "asset_r" });
+    ed.must({ type: "layer.setVideoRole", layerId: r, role: "reference" });
+    ed.must({ type: "layer.update", layerId: v, patch: { inPoint: 1, mediaOffset: 0.5 } });
+    const out = compileToHyperFrames(ed.project, { runtimeJs: "", videoFrames: { asset_v: { pattern: "file:///s/%05d.png", fps: 30, count: 100 } } });
+    expect(out.html).not.toContain("asset_r");
+    expect(out.assets.map((a) => a.id)).toEqual([]); // stills replace the copy
+    const p = structuredClone(ed.project);
+    p.assets[0].frames = { pattern: "file:///s/%05d.png", fps: 30, count: 100 };
+    const L = evaluateComposition(p, p.compositions[0], 2).layers.find((l) => l.id === v)!;
+    expect((L.content as { frameSrc: string }).frameSrc).toBe("file:///s/00046.png"); // 1.5 s into the media -> frame 45 (1-based 46)
+    const args = muxArgs("in.mov", [{ file: "a.wav", start: 0.5, offset: 2, duration: 3, volume: 0.8 }], 10, "prores4444", "out.mov").join(" ");
+    expect(args).toContain("atrim=start=2.0000:duration=3.0000");
+    expect(args).toContain("adelay=500:all=1");
+    expect(args).toContain("volume=0.800");
+    expect(args).toContain("pcm_s24le");
+    expect(() => ed.must({ type: "layer.add", layerType: "audio", opts: { assetId: "nope" } })).toThrow(/Asset not found/);
+  });
+});

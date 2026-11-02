@@ -2,7 +2,8 @@ import { useRef } from "react";
 import { easeName } from "../core/easing";
 import { isAnimated, valueAt } from "../core/interpolate";
 import { getProp, listProps } from "../core/props";
-import type { Composition, Layer, Prop } from "../core/types";
+import type { AudioLayer, Composition, Layer, Prop } from "../core/types";
+import { usePeaks } from "./audio";
 import { GraphEditor } from "./GraphEditor";
 import { activeComp, getUI, run, setTime, setUI, snapTime, useProject, useUI, type KeySel } from "./state";
 
@@ -62,6 +63,29 @@ function startDrag(e: React.PointerEvent, onMove: (dx: number, ev: PointerEvent)
   };
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", up);
+}
+
+/** Audio waveform drawn inside the layer bar (ED-14). */
+function Waveform({ layer, zoom }: { layer: AudioLayer; zoom: number }) {
+  const project = useProject();
+  const peaks = usePeaks(project.assets.find((a) => a.id === layer.assetId));
+  if (!peaks) return null;
+  const dur = layer.outPoint - layer.inPoint;
+  const w = Math.max(2, dur * zoom);
+  const n = Math.min(Math.round(w / 2), 4000);
+  const pts: string[] = [];
+  for (let i = 0; i <= n; i++) {
+    const tMedia = layer.mediaOffset + (i / n) * dur;
+    const v = peaks[Math.min(peaks.length - 1, Math.floor(tMedia * 100))] ?? 0;
+    pts.push(`${((i / n) * w).toFixed(1)},${(10 - v * 9).toFixed(1)}`);
+  }
+  const top = pts.join(" ");
+  const bottom = pts.map((p) => p.replace(/,([\d.]+)$/, (_, y) => `,${(20 - Number(y)).toFixed(1)}`)).reverse().join(" ");
+  return (
+    <svg className="waveform" width={w} height={20} viewBox={`0 0 ${w} 20`} preserveAspectRatio="none">
+      <polygon points={`${top} ${bottom}`} />
+    </svg>
+  );
 }
 
 export function Timeline() {
@@ -186,6 +210,7 @@ export function Timeline() {
             style={{ left: layer.inPoint * zoom, width: Math.max(2, (layer.outPoint - layer.inPoint) * zoom) }}
             onPointerDown={(e) => barDown(e, layer, "move")}
           >
+            {layer.type === "audio" && <Waveform layer={layer} zoom={zoom} />}
             <div className="trim in" onPointerDown={(e) => barDown(e, layer, "in")} />
             <div className="trim out" onPointerDown={(e) => barDown(e, layer, "out")} />
           </div>

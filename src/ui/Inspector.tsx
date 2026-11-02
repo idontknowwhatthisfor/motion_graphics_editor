@@ -4,9 +4,10 @@ import { isAnimated, valueAt } from "../core/interpolate";
 import { prop as mkProp } from "../core/factory";
 import { getProp } from "../core/props";
 import { checkExpression } from "../core/evaluate";
-import type { AnimValue, BlendMode, Effect, EffectKind, Layer, MatteMode, Paint, Vec2 } from "../core/types";
+import type { AnimValue, AudioLayer, BlendMode, Effect, EffectKind, Layer, MatteMode, Paint, Vec2 } from "../core/types";
 import { compContains } from "../core/commands";
-import { activeComp, run, useProject, useUI } from "./state";
+import { activeComp, run, toast, useProject, useUI } from "./state";
+import { beatsFor } from "./audio";
 
 const BLEND_MODES: BlendMode[] = ["normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity"];
 const FONTS = ["Inter, Helvetica Neue, Arial, sans-serif", "Helvetica Neue", "SF Pro Display", "Avenir Next", "Futura", "Gill Sans", "Georgia", "Times New Roman", "Menlo", "Arial Black"];
@@ -307,6 +308,43 @@ function EffectRows({ layer, e, index, count }: { layer: Layer; e: Effect; index
         </>
       )}
     </div>
+  );
+}
+
+function AudioSection({ layer }: { layer: AudioLayer }) {
+  const project = useProject();
+  const [busy, setBusy] = useState(false);
+  const asset = project.assets.find((a) => a.id === layer.assetId);
+  const detect = async () => {
+    if (!asset) return;
+    setBusy(true);
+    try {
+      const r = await beatsFor(asset);
+      const times = (r.beats.length ? r.beats : r.onsets).map((m) => layer.inPoint + m - layer.mediaOffset).filter((t) => t >= layer.inPoint && t < layer.outPoint);
+      if (!times.length) return toast("No clear beats found in this audio", "error");
+      const comp = activeComp(project);
+      const old = comp.markers.filter((m) => m.label === "beat").map((m) => ({ type: "marker.remove" as const, markerId: m.id }));
+      run([...old, ...times.map((t) => ({ type: "marker.add" as const, t: Math.round(t * 1000) / 1000, label: "beat", color: "#14b8a6" }))], { label: "Beat markers" });
+      toast(r.bpm ? `${times.length} beat markers at ${r.bpm} BPM` : `${times.length} hit markers (no steady tempo)`);
+    } catch (e) {
+      toast(`Cannot analyse audio: ${(e as Error).message}`, "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section title="Audio">
+      <PropRow layer={layer} path="volume" label="Volume %" min={0} max={200} />
+      <div className="prow">
+        <span className="plabel">Media start s</span>
+        <NumberField value={layer.mediaOffset} step={0.1} onChange={(v) => upd(layer, { mediaOffset: Math.max(0, v) })} />
+      </div>
+      <div className="prow">
+        <button disabled={busy || !asset} onClick={detect}>{busy ? "Listening…" : "Detect beats"}</button>
+        <span className="small muted">Adds "beat" markers to snap keyframes to.</span>
+      </div>
+      <div className="small muted">Plays with the preview and is mixed into MOV, MP4 and WebM exports.</div>
+    </Section>
   );
 }
 
@@ -623,6 +661,24 @@ export function Inspector() {
           </Section>
         </>
       )}
+
+      {(layer.type === "video" || layer.type === "reference") && (
+        <Section title="Video">
+          <div className="prow">
+            <span className="plabel">Use</span>
+            <select value={layer.type} onChange={(e) => run({ type: "layer.setVideoRole", layerId: layer.id, role: e.target.value as "video" })}>
+              <option value="video">In the export</option>
+              <option value="reference">Reference only (not exported)</option>
+            </select>
+          </div>
+          <div className="prow">
+            <span className="plabel">Media start s</span>
+            <NumberField value={layer.mediaOffset} step={0.1} onChange={(v) => upd(layer, { mediaOffset: Math.max(0, v) })} />
+          </div>
+        </Section>
+      )}
+
+      {layer.type === "audio" && <AudioSection layer={layer} />}
 
       {layer.type === "precomp" && (
         <Section title="Nested comp">

@@ -222,6 +222,17 @@ function layerContent(ctx: Ctx, L: ResolvedLayer): VNode[] {
             ]),
           ]
         : [];
+    case "video":
+      if (c.frameSrc) return [h("image", "f", { href: c.frameSrc, x: 0, y: 0, width: c.width, height: c.height, preserveAspectRatio: "none" })];
+      return c.src
+        ? [
+            h("foreignObject", "fo", { x: 0, y: 0, width: c.width, height: c.height }, [
+              h("video", "v", { src: c.src, muted: "", playsinline: "", preload: "auto", "data-time": num(c.mediaTime), style: `width:${c.width}px;height:${c.height}px;display:block` }),
+            ]),
+          ]
+        : [];
+    case "audio":
+      return [];
     case "shape":
       return shapeContent(ctx, L);
     case "text":
