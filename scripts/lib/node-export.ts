@@ -43,7 +43,17 @@ export function writeHyperFramesProject(project: Project, projectDir: string, ou
 
 export async function launchBrowser(): Promise<Browser> {
   const { chromium } = await import("playwright");
-  const executablePath = process.env.MGE_CHROMIUM || (existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
+  // Prefer an explicit path, then a browser already on the machine, so the
+  // ~150 MB `npx playwright install chromium` download is optional.
+  const candidates = [
+    process.env.MGE_CHROMIUM,
+    "/opt/pw-browsers/chromium",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+    "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+  ];
+  const executablePath = candidates.find((p) => p && existsSync(p));
   return chromium.launch({ executablePath, args: ["--disable-gpu-vsync", "--font-render-hinting=none"] });
 }
 
