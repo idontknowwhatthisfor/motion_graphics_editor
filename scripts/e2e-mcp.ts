@@ -50,6 +50,9 @@ const frame = await call("render_frame", { time: 2, scale: 0.5 });
 const ms = Date.now() - t0;
 writeFileSync(join(out, "mcp-render-frame.png"), Buffer.from(frame.content[0].data!, "base64"));
 check(frame.content[0].type === "image", `render_frame returns an image (${ms} ms, target < 3000 incl. browser start)`);
+// The cold first frame once came back as t = 0 (GSAP's lazy first render ran after the seek).
+const warm = await call("render_frame", { time: 2, scale: 0.5 });
+check(warm.content[0].data === frame.content[0].data, "cold render_frame matches a warm render of the same time");
 const t1 = Date.now();
 await call("render_frame", { time: 1, scale: 1 });
 check(Date.now() - t1 < 3000, `warm 1080p render_frame in ${Date.now() - t1} ms`);

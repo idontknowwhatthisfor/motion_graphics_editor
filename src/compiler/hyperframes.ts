@@ -129,7 +129,9 @@ export function compileToHyperFrames(project: Project, opts: CompileOptions): Co
         player.seek(0);
         window.__timelines = window.__timelines || {};
         var tl = gsap.timeline({ paused: true });
-        tl.fromTo(proxy, { t: 0 }, { t: ${comp.duration}, duration: ${comp.duration}, ease: "none", immediateRender: true }, 0);
+        // lazy: false. GSAP otherwise defers the immediate render to its next
+        // tick, which could land after a __mgeSeek and redraw t = 0 over it.
+        tl.fromTo(proxy, { t: 0 }, { t: ${comp.duration}, duration: ${comp.duration}, ease: "none", immediateRender: true, lazy: false }, 0);
         window.__timelines[${JSON.stringify(id)}] = tl;
         // Direct hook for our own exporter and frame checks.
         window.__mgeSeek = function (t) { player.seek(t); };
