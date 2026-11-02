@@ -56,8 +56,28 @@ function sorted<T extends AnimValue>(kfs: Keyframe<T>[]): Keyframe<T>[] {
   return kfs;
 }
 
-/** Value of a property at composition time t (seconds). */
+/**
+ * Expressions (ED-12) are applied through a hook that the evaluator installs
+ * while it renders a composition, because they need the layer and comp
+ * around the property. Outside rendering, valueAt returns the plain value.
+ */
+export type ExpressionHook = (p: Prop, t: number, base: AnimValue) => AnimValue;
+let exprHook: ExpressionHook | null = null;
+/** Install a hook; returns the previous one so callers can restore it. */
+export function setExpressionHook(h: ExpressionHook | null): ExpressionHook | null {
+  const prev = exprHook;
+  exprHook = h;
+  return prev;
+}
+
+/** Value of a property at composition time t (seconds), including its expression while rendering. */
 export function valueAt<T extends AnimValue>(p: Prop<T>, t: number): T {
+  const v = rawValueAt(p, t);
+  return p.expression && exprHook ? (exprHook(p as Prop, t, v) as T) : v;
+}
+
+/** Keyframed value only (no expression). */
+export function rawValueAt<T extends AnimValue>(p: Prop<T>, t: number): T {
   if (!p.keyframes || p.keyframes.length === 0) return p.value;
   const k = sorted(p.keyframes);
   if (t <= k[0].t) return k[0].v;

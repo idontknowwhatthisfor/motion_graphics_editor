@@ -60,6 +60,10 @@ DaVinci Resolve over a coloured clip and check the edges.
 - Inspector › Effects adds blur, glow, drop shadow, colour correction and a
   gradient overlay; every effect value has a stopwatch. + Layer › Nested comp
   places another composition as a layer.
+- The "=" next to a property's stopwatch adds an expression, e.g.
+  `wiggle(2, 30)`, `loopOut("pingpong")` or
+  `prop("Title", "transform.position") + [0, 80]`. Shape layers also have
+  a Repeater (rows, rings, spirals) and an Offset path.
 - Click a property's stopwatch to animate it; click a property name in the
   timeline to open its curve in the graph editor.
 - Drag SVG/PNG/JPG onto the window to import. Drop a video to use it as a

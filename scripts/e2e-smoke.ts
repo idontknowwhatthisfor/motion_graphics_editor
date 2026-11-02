@@ -75,6 +75,14 @@ check((await page.locator(".tl-row.layer .lname", { hasText: "Pen path" }).count
 await page.locator("[data-testid=add-effect]").selectOption("blur");
 check((await page.locator(".inspector .prow", { hasText: "Amount" }).count()) === 1 && (await page.locator(".viewer svg [filter]").count()) > 0, "adding a blur effect shows its controls and an SVG filter");
 
+// expressions (ED-12) and repeaters (ED-09) on the path layer
+await page.locator(".inspector .prow", { hasText: "Rotation" }).locator(".expr-btn").click();
+await page.locator(".inspector .expr textarea").fill("wiggle(2, 15)");
+await page.locator(".inspector .expr textarea").blur();
+check((await page.locator(".inspector .expr-foot", { hasText: "=" }).count()) === 1 && (await page.locator(".inspector .expr-btn.on").count()) === 1, "an expression applies and shows its live value");
+await page.locator(".inspector button", { hasText: "+ Repeater" }).click();
+check((await page.locator(".inspector .prow", { hasText: "Copies" }).count()) === 1, "a repeater can be added from the Inspector");
+
 // nested comps: precompose the selected layer (ED-02)
 await page.keyboard.press("Control+Shift+c");
 check((await page.locator(".tl-row.layer .lname", { hasText: "Pen path comp" }).count()) === 1 && (await page.locator(".inspector .section-head", { hasText: "Nested comp" }).count()) === 1, "precompose replaces the layer with a nested comp");

@@ -12,3 +12,4 @@ export * from "./editor";
 export * from "./project-io";
 export * from "./revert";
 export * from "./samples";
+export * from "./expressions";

@@ -3,6 +3,7 @@ import { parseColor, formatColor } from "../core/color";
 import { isAnimated, valueAt } from "../core/interpolate";
 import { prop as mkProp } from "../core/factory";
 import { getProp } from "../core/props";
+import { checkExpression } from "../core/evaluate";
 import type { AnimValue, BlendMode, Effect, EffectKind, Layer, MatteMode, Paint, Vec2 } from "../core/types";
 import { compContains } from "../core/commands";
 import { activeComp, run, useProject, useUI } from "./state";
@@ -76,10 +77,11 @@ function ColorField({ value, onChange }: { value: string; onChange: (v: string) 
   );
 }
 
-/** An animatable property row: stopwatch + editor. */
+/** An animatable property row: stopwatch, expression toggle and editor. */
 function PropRow({ layer, path, label, step, min, max }: { layer: Layer; path: string; label: string; step?: number; min?: number; max?: number }) {
   const time = useUI((s) => s.time);
   const key = useRef(`insp-${Math.random()}`);
+  const [exprOpen, setExprOpen] = useState(false);
   const p = getProp(layer, path);
   if (!p) return null;
   const anim = isAnimated(p);
@@ -88,6 +90,7 @@ function PropRow({ layer, path, label, step, min, max }: { layer: Layer; path: s
     run({ type: "prop.set", layerId: layer.id, path, value, ...(anim ? { t: time } : {}) }, { coalesceKey: key.current, label: `Set ${label}` });
   const commit = () => (key.current = `insp-${Math.random()}`);
   const onKey = anim && p.keyframes!.some((k) => Math.abs(k.t - time) < 1e-4);
+  const canExpr = typeof v === "number" || typeof v === "string" || Array.isArray(v);
   let editor: JSX.Element;
   if (typeof v === "number") editor = <NumberField value={v} step={step} min={min} max={max} onChange={set} onCommit={commit} />;
   else if (typeof v === "string") editor = <ColorField value={v} onChange={set} />;
@@ -100,16 +103,79 @@ function PropRow({ layer, path, label, step, min, max }: { layer: Layer; path: s
     );
   else editor = <span className="muted">{v.points.length} points{v.closed ? ", closed" : ""}</span>;
   return (
-    <div className="prow">
-      <button
-        className={`stopwatch ${anim ? "on" : ""}`}
-        title={anim ? "Remove animation" : "Animate: add a keyframe at the playhead"}
-        onClick={() => run(anim ? { type: "prop.setKeyframes", layerId: layer.id, path, keyframes: [] } : { type: "keyframe.add", layerId: layer.id, path, t: time })}
-      >
-        ⏱
-      </button>
-      <span className={`plabel ${onKey ? "onkey" : ""}`}>{label}</span>
-      <span className="pedit">{editor}</span>
+    <>
+      <div className="prow">
+        <button
+          className={`stopwatch ${anim ? "on" : ""}`}
+          title={anim ? "Remove animation" : "Animate: add a keyframe at the playhead"}
+          onClick={() => run(anim ? { type: "prop.setKeyframes", layerId: layer.id, path, keyframes: [] } : { type: "keyframe.add", layerId: layer.id, path, t: time })}
+        >
+          ⏱
+        </button>
+        {canExpr && (
+          <button className={`expr-btn ${p.expression ? "on" : ""}`} title="Expression (wiggle, loopOut, links…)" onClick={() => setExprOpen(!exprOpen)}>
+            =
+          </button>
+        )}
+        <span className={`plabel ${onKey ? "onkey" : ""}`}>{label}</span>
+        <span className="pedit">{editor}</span>
+      </div>
+      {(exprOpen || p.expression) && <ExpressionEditor layer={layer} path={path} expression={p.expression ?? ""} onClose={() => setExprOpen(false)} />}
+    </>
+  );
+}
+
+const EXPR_EXAMPLES = ["wiggle(2, 30)", 'loopOut("cycle")', 'loopOut("pingpong")', 'prop("Layer name", "transform.position")', "value + [time * 100, 0]", "linear(time, 0, 1, 0, 100)"];
+
+/** Expression text for one property (ED-12): applied on blur; errors show live. */
+function ExpressionEditor({ layer, path, expression, onClose }: { layer: Layer; path: string; expression: string; onClose: () => void }) {
+  const project = useProject();
+  const time = useUI((s) => s.time);
+  const [text, setText] = useState(expression);
+  const [err, setErr] = useState<string | null>(null);
+  const lastSaved = useRef(expression);
+  if (expression !== lastSaved.current) {
+    lastSaved.current = expression;
+    if (text !== expression) setText(expression);
+  }
+  const apply = (src: string) => {
+    if (src.trim() === expression.trim()) return;
+    const r = run({ type: "prop.setExpression", layerId: layer.id, path, expression: src.trim() || null });
+    setErr(r.ok ? null : (r.error ?? "Expression error"));
+    if (r.ok && !src.trim()) onClose();
+  };
+  const runtime = expression ? checkExpression(activeComp(project), layer.id, path, time) : {};
+  const shown = err ?? runtime.error ?? null;
+  return (
+    <div className="expr">
+      <textarea
+        rows={Math.min(6, Math.max(1, text.split("\n").length))}
+        spellCheck={false}
+        placeholder="e.g. wiggle(2, 30)"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => apply(text)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) apply(text);
+          if (e.key === "Escape") setText(expression);
+        }}
+      />
+      <div className="expr-foot small">
+        {shown ? (
+          <span className="expr-err">{shown}</span>
+        ) : runtime.value !== undefined ? (
+          <span className="muted">= {Array.isArray(runtime.value) ? runtime.value.map((n) => +(+n).toFixed(2)).join(", ") : typeof runtime.value === "number" ? +runtime.value.toFixed(3) : String(runtime.value)}</span>
+        ) : (
+          <select value="" onChange={(e) => setText(e.target.value)}>
+            <option value="" disabled>Examples…</option>
+            {EXPR_EXAMPLES.map((x) => (
+              <option key={x}>{x}</option>
+            ))}
+          </select>
+        )}
+        {expression && <button onClick={() => apply("")}>Remove</button>}
+      </div>
     </div>
   );
 }
@@ -370,6 +436,62 @@ export function Inspector() {
             <PropRow layer={layer} path="trim.end" label="End %" min={0} max={100} />
             <PropRow layer={layer} path="trim.offset" label="Offset °" />
             <div className="muted small">Trims the stroke.</div>
+          </Section>
+          <Section
+            title="Repeater"
+            right={
+              layer.repeater ? (
+                <>
+                  <input type="checkbox" title="On/off" checked={layer.repeater.enabled} onChange={(e) => upd(layer, { repeater: { enabled: e.target.checked } })} />
+                  <button title="Remove" onClick={() => run({ type: "shape.removeOperator", layerId: layer.id, operator: "repeater" })}>✕</button>
+                </>
+              ) : (
+                <button onClick={() => run({ type: "shape.addOperator", layerId: layer.id, operator: "repeater" })}>+ Repeater</button>
+              )
+            }
+          >
+            {layer.repeater ? (
+              <>
+                <PropRow layer={layer} path="repeater.copies" label="Copies" min={0} max={200} />
+                <PropRow layer={layer} path="repeater.offset" label="Offset" step={0.1} />
+                <PropRow layer={layer} path="repeater.position" label="Position" />
+                <PropRow layer={layer} path="repeater.anchor" label="Anchor" />
+                <PropRow layer={layer} path="repeater.scale" label="Scale %" />
+                <PropRow layer={layer} path="repeater.rotation" label="Rotation °" />
+                <PropRow layer={layer} path="repeater.startOpacity" label="Start opacity %" min={0} max={100} />
+                <PropRow layer={layer} path="repeater.endOpacity" label="End opacity %" min={0} max={100} />
+              </>
+            ) : (
+              <div className="muted small">Copies the shape; each copy adds the position, rotation and scale again (rows, rings, spirals).</div>
+            )}
+          </Section>
+          <Section
+            title="Offset path"
+            right={
+              layer.offsetPath ? (
+                <>
+                  <input type="checkbox" title="On/off" checked={layer.offsetPath.enabled} onChange={(e) => upd(layer, { offsetPath: { enabled: e.target.checked } })} />
+                  <button title="Remove" onClick={() => run({ type: "shape.removeOperator", layerId: layer.id, operator: "offsetPath" })}>✕</button>
+                </>
+              ) : (
+                <button onClick={() => run({ type: "shape.addOperator", layerId: layer.id, operator: "offsetPath" })}>+ Offset</button>
+              )
+            }
+          >
+            {layer.offsetPath ? (
+              <>
+                <PropRow layer={layer} path="offsetPath.amount" label="Amount px" />
+                <div className="prow">
+                  <span className="plabel">Corners</span>
+                  <select value={layer.offsetPath.join} onChange={(e) => upd(layer, { offsetPath: { join: e.target.value } })}>
+                    <option value="round">Round</option>
+                    <option value="miter">Sharp</option>
+                  </select>
+                </div>
+              </>
+            ) : (
+              <div className="muted small">Grows (+) or shrinks (−) the shape outline.</div>
+            )}
           </Section>
         </>
       )}

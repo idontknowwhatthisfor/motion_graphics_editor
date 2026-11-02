@@ -57,6 +57,11 @@ export interface Keyframe<T extends AnimValue = AnimValue> {
 export interface Prop<T extends AnimValue = AnimValue> {
   value: T;
   keyframes?: Keyframe<T>[];
+  /**
+   * Optional expression (ED-12, see core/expressions.ts). Applied on top of
+   * the keyframed value at render time; `value` inside it is that value.
+   */
+  expression?: string;
 }
 
 export type BlendMode =
@@ -267,6 +272,30 @@ export interface SolidLayer extends LayerCommon {
   width: number;
   height: number;
 }
+/**
+ * Repeater (ED-09): draws `copies` copies of the shape; copy k gets the
+ * transform applied k times (k = index + offset), so position + rotation
+ * makes rows, rings and spirals.
+ */
+export interface Repeater {
+  enabled: boolean;
+  copies: Prop<number>;
+  offset: Prop<number>;
+  anchor: Prop<Vec2>;
+  position: Prop<Vec2>;
+  scale: Prop<Vec2>;
+  rotation: Prop<number>;
+  /** 0–100, first and last copy; copies between are interpolated. */
+  startOpacity: Prop<number>;
+  endOpacity: Prop<number>;
+}
+/** Offset paths (ED-09): grow (+) or shrink (-) every geometry by `amount` px. */
+export interface OffsetPath {
+  enabled: boolean;
+  amount: Prop<number>;
+  join: "miter" | "round";
+}
+
 export interface ShapeLayer extends LayerCommon {
   type: "shape";
   geometry: Geometry[];
@@ -274,6 +303,8 @@ export interface ShapeLayer extends LayerCommon {
   fill: Fill;
   stroke: Stroke;
   trim: TrimPaths;
+  repeater?: Repeater;
+  offsetPath?: OffsetPath;
 }
 export interface TextLayer extends LayerCommon {
   type: "text";

@@ -5,9 +5,13 @@
  * keeps the editor preview and the exported video identical.
  */
 import { lerpColor } from "./color";
-import { ellipseToD, layerMatrix, multiply, pathToD, rectToD, trimDash, type Mat } from "./geometry";
-import { valueAt } from "./interpolate";
+import { ExpressionError, evaluateExpression, seedOf } from "./expressions";
+import { ellipseToD, layerMatrix, multiply, offsetPathD, pathToD, rectToD, repeatMatrix, trimDash, type Mat } from "./geometry";
+import { rawValueAt, setExpressionHook, valueAt, type ExpressionHook } from "./interpolate";
+import { forEachProp, getProp } from "./props";
 import type {
+  AnimValue,
+  Prop,
   Asset,
   BlendMode,
   Color,
@@ -63,6 +67,8 @@ export type ResolvedContent =
         lineJoin: string;
         trim: { dasharray: string; dashoffset: number } | null;
       } | null;
+      /** Repeater copies, bottom first (ED-09); null = draw once. */
+      repeats: { matrix: Mat; opacity: number }[] | null;
     }
   | {
       type: "text";
@@ -312,11 +318,33 @@ function resolveContent(layer: Layer, t: number, assets: Map<string, Asset>, ass
       };
     }
     case "shape": {
+      const off = layer.offsetPath?.enabled ? valueAt(layer.offsetPath.amount, t) : 0;
+      const join = layer.offsetPath?.join ?? "miter";
+      const grow = (v: Vec2): Vec2 => [Math.max(0, v[0] + 2 * off), Math.max(0, v[1] + 2 * off)];
       const paths = layer.geometry.map((g) => {
-        if (g.kind === "rect") return rectToD(valueAt(g.position, t), valueAt(g.size, t), valueAt(g.roundness, t));
-        if (g.kind === "ellipse") return ellipseToD(valueAt(g.position, t), valueAt(g.size, t));
-        return pathToD(valueAt(g.path, t));
+        if (g.kind === "rect") {
+          const r = valueAt(g.roundness, t);
+          return rectToD(valueAt(g.position, t), grow(valueAt(g.size, t)), off && (join === "round" || r > 0) ? Math.max(0, r + off) : r);
+        }
+        if (g.kind === "ellipse") return ellipseToD(valueAt(g.position, t), grow(valueAt(g.size, t)));
+        return off ? offsetPathD(valueAt(g.path, t), off, join) : pathToD(valueAt(g.path, t));
       });
+      let repeats: { matrix: Mat; opacity: number }[] | null = null;
+      const rp = layer.repeater;
+      if (rp?.enabled) {
+        const n = Math.max(0, Math.min(200, Math.round(valueAt(rp.copies, t))));
+        const o = valueAt(rp.offset, t);
+        const a = valueAt(rp.anchor, t);
+        const p = valueAt(rp.position, t);
+        const sc = valueAt(rp.scale, t);
+        const rot = valueAt(rp.rotation, t);
+        const o0 = valueAt(rp.startOpacity, t);
+        const o1 = valueAt(rp.endOpacity, t);
+        repeats = Array.from({ length: n }, (_, i) => ({
+          matrix: repeatMatrix(a, p, sc, rot, i + o),
+          opacity: Math.max(0, Math.min(1, (o0 + (o1 - o0) * (n > 1 ? i / (n - 1) : 0)) / 100)),
+        }));
+      }
       const trim = layer.trim.enabled
         ? trimDash(valueAt(layer.trim.start, t), valueAt(layer.trim.end, t), valueAt(layer.trim.offset, t))
         : null;
@@ -337,6 +365,7 @@ function resolveContent(layer: Layer, t: number, assets: Map<string, Asset>, ass
               trim,
             }
           : null,
+        repeats,
       };
     }
     case "text": {
@@ -371,12 +400,99 @@ export function worldMatrix(comp: Composition, layer: Layer, t: number, seen = n
   return multiply(worldMatrix(comp, parent, t, seen), local);
 }
 
+// ---------- expressions (ED-12) ----------
+type Owner = { layer: Layer; index: number; path: string };
+const ownerCache = new WeakMap<Composition, Map<Prop, Owner>>();
+/** Which layer and path each expression-bearing property belongs to (cached per immutable comp). */
+function owners(comp: Composition): Map<Prop, Owner> {
+  let m = ownerCache.get(comp);
+  if (!m) {
+    m = new Map();
+    comp.layers.forEach((layer, index) =>
+      forEachProp(layer, (p, path) => {
+        if (p.expression) m!.set(p, { layer, index, path });
+      }),
+    );
+    ownerCache.set(comp, m);
+  }
+  return m;
+}
+
+function exprContext(comp: Composition, o: Owner, p: Prop, t: number, base: AnimValue) {
+  return {
+    value: base,
+    time: t,
+    prop: p,
+    seed: seedOf(`${o.layer.id}|${o.path}`),
+    vars: {
+      frame: Math.round(t * comp.fps),
+      fps: comp.fps,
+      inPoint: o.layer.inPoint,
+      outPoint: o.layer.outPoint,
+      index: o.index + 1,
+      width: comp.width,
+      height: comp.height,
+      duration: comp.duration,
+    },
+    rawAt: (x: number) => rawValueAt(p, x),
+    link: (name: string, path: string, x: number) => {
+      const L = comp.layers.find((l) => l.id === name) ?? comp.layers.find((l) => l.name === name);
+      if (!L) throw new ExpressionError(`No layer named "${name}" in this composition`);
+      const q = getProp(L, path);
+      if (!q) throw new ExpressionError(`Layer "${L.name}" has no property ${path}`);
+      return valueAt(q, x);
+    },
+  };
+}
+
+function expressionHook(comp: Composition): ExpressionHook {
+  const map = owners(comp);
+  const active = new Set<Prop>();
+  return (p, t, base) => {
+    const o = map.get(p);
+    if (!o || active.has(p)) return base; // unknown, or a link loop: use the plain value
+    active.add(p);
+    try {
+      return evaluateExpression(p.expression!, exprContext(comp, o, p, t, base));
+    } catch {
+      return base; // a broken expression never breaks a render; the Inspector shows the error
+    } finally {
+      active.delete(p);
+    }
+  };
+}
+
+/** Evaluate one property's expression and report its result or error (for the Inspector and MCP). */
+export function checkExpression(comp: Composition, layerId: string, path: string, t: number): { value?: AnimValue; error?: string } {
+  const layer = comp.layers.find((l) => l.id === layerId);
+  const p = layer && getProp(layer, path);
+  if (!layer || !p?.expression) return {};
+  const prev = setExpressionHook(expressionHook(comp));
+  try {
+    const o = owners(comp).get(p) ?? { layer, index: comp.layers.indexOf(layer), path };
+    return { value: evaluateExpression(p.expression, exprContext(comp, o, p, t, rawValueAt(p, t))) };
+  } catch (e) {
+    return { error: (e as Error).message };
+  } finally {
+    setExpressionHook(prev);
+  }
+}
+
 export function evaluateComposition(
   project: EvalProject,
   comp: Composition,
   t: number,
   opts: EvaluateOptions = {},
 ): ResolvedScene {
+  const prevHook = setExpressionHook(expressionHook(comp));
+  try {
+    return evaluateCompositionInner(project, comp, t, opts);
+  } finally {
+    setExpressionHook(prevHook);
+  }
+}
+
+function evaluateCompositionInner(project: EvalProject, comp: Composition, t: number, opts: EvaluateOptions): ResolvedScene {
   const assets = new Map(project.assets.map((a) => [a.id, a]));
   const assetUrl = opts.assetUrl ?? ((a: Asset) => a.src);
   const matteSources = new Set(comp.layers.filter((l) => l.matte).map((l) => l.matte!.layerId));

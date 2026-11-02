@@ -6,6 +6,8 @@ import type {
   Layer,
   LayerType,
   NullLayer,
+  OffsetPath,
+  Repeater,
   PrecompLayer,
   Effect,
   EffectKind,
@@ -191,6 +193,24 @@ export function makeLayer(type: LayerType, comp: Pick<Composition, "width" | "he
       return l;
     }
   }
+}
+
+/** Repeater defaults (ED-09): three copies in a row, 100 px apart. */
+export function makeRepeater(): Repeater {
+  return {
+    enabled: true,
+    copies: prop(3),
+    offset: prop(0),
+    anchor: prop<Vec2>([0, 0]),
+    position: prop<Vec2>([100, 0]),
+    scale: prop<Vec2>([100, 100]),
+    rotation: prop(0),
+    startOpacity: prop(100),
+    endOpacity: prop(100),
+  };
+}
+export function makeOffsetPath(): OffsetPath {
+  return { enabled: true, amount: prop(10), join: "round" };
 }
 
 /** A new effect with sensible defaults (ED-11). */

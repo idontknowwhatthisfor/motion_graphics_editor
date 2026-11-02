@@ -139,7 +139,15 @@ electron/start.mjs (sets MGE_ROOT, Homebrew PATH). `npm run app:install`
 ad-hoc signed copy of Electron.app whose Resources/app stub imports
 electron/start.mjs from this folder. Electron is pinned to 44.7.0.
 
-Remaining batches: 3 expressions + repeaters/path
+Batch 3 done: expressions (ED-12) as a safe formula language in
+src/core/expressions.ts (not JS; Prop.expression; applied through the hook in
+interpolate.ts that evaluateComposition installs; broken expressions fall back
+to the plain value and checkExpression reports the error), repeaters and
+offset paths (ED-09: ShapeLayer.repeater / offsetPath, shape.addOperator,
+geometry.ts repeatMatrix / offsetPathD). Tests in tests/m2b.test.ts. MCP has
+30 tools; keep it at 30 or fewer (tests/mcp.test.ts).
+
+Remaining batches: (3 done) + repeaters/path
 offset (ED-12, ED-09); 4 brand kits + templates (ED-15, ED-16); 5 audio and
 video layers (ED-14, ED-23); 6 Claude extras (CL-09..CL-12).
 

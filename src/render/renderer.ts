@@ -199,6 +199,11 @@ function shapeContent(ctx: Ctx, L: ResolvedLayer): VNode[] {
       }),
     );
   }
+  // Repeater (ED-09): the same drawing once per copy, each with its own transform.
+  if (c.repeats)
+    return c.repeats.map((r, i) =>
+      h("g", `rep${i}`, { transform: matrix(r.matrix), opacity: r.opacity < 1 ? num(r.opacity) : undefined }, out),
+    );
   return out;
 }
 

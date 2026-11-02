@@ -127,3 +127,107 @@ export function trimDash(start: number, end: number, offsetDeg: number): { dasha
   const a = e - 100;
   return { dasharray: `${f(a)} ${f(s - a)} ${f(100 - s)} 0`, dashoffset: 0 };
 }
+
+/** Matrix of a repeater-style transform applied `k` times (k may be fractional). */
+export function repeatMatrix(anchor: Vec2, position: Vec2, scalePct: Vec2, rotationDeg: number, k: number): Mat {
+  const step = layerMatrix(anchor, [anchor[0] + position[0], anchor[1] + position[1]], scalePct, rotationDeg);
+  let m: Mat = IDENTITY;
+  const whole = Math.floor(k);
+  const frac = k - whole;
+  const base = whole >= 0 ? step : invert(step);
+  for (let i = 0; i < Math.abs(whole); i++) m = multiply(m, base);
+  if (frac > 1e-9) {
+    const part = layerMatrix(
+      anchor,
+      [anchor[0] + position[0] * frac, anchor[1] + position[1] * frac],
+      [100 * Math.pow(Math.max(1e-6, scalePct[0] / 100), frac), 100 * Math.pow(Math.max(1e-6, scalePct[1] / 100), frac)],
+      rotationDeg * frac,
+    );
+    m = multiply(m, part);
+  }
+  return m;
+}
+
+/**
+ * Offset a bezier path by `amount` px (positive grows a closed shape). The
+ * curve is flattened to a polyline first, so the result is an approximation
+ * that is exact enough for motion graphics; rectangles and ellipses are
+ * offset exactly by the evaluator instead.
+ */
+export function offsetPathD(path: PathData, amount: number, join: "miter" | "round"): string {
+  const pts: Vec2[] = [];
+  const n = path.points.length;
+  if (n < 2) return pathToD(path);
+  const segs = path.closed ? n : n - 1;
+  const STEPS = 16;
+  for (let i = 0; i < segs; i++) {
+    const a = path.points[i];
+    const b = path.points[(i + 1) % n];
+    const c1: Vec2 = [a.p[0] + a.out[0], a.p[1] + a.out[1]];
+    const c2: Vec2 = [b.p[0] + b.in[0], b.p[1] + b.in[1]];
+    const straight = !a.out[0] && !a.out[1] && !b.in[0] && !b.in[1];
+    const steps = straight ? 1 : STEPS;
+    for (let s = 0; s < steps; s++) {
+      const u = s / steps;
+      const mu = 1 - u;
+      pts.push([
+        mu * mu * mu * a.p[0] + 3 * mu * mu * u * c1[0] + 3 * mu * u * u * c2[0] + u * u * u * b.p[0],
+        mu * mu * mu * a.p[1] + 3 * mu * mu * u * c1[1] + 3 * mu * u * u * c2[1] + u * u * u * b.p[1],
+      ]);
+    }
+  }
+  if (!path.closed) pts.push(path.points[n - 1].p);
+  // Drop repeated points so normals are defined.
+  const P = pts.filter((p, i) => i === 0 || Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]) > 1e-6);
+  if (path.closed && P.length > 1 && Math.hypot(P[0][0] - P[P.length - 1][0], P[0][1] - P[P.length - 1][1]) < 1e-6) P.pop();
+  const m = P.length;
+  if (m < 2) return pathToD(path);
+  // Outward = left of travel for clockwise (screen) shapes; flip by orientation.
+  let area = 0;
+  for (let i = 0; i < m; i++) {
+    const p = P[i];
+    const q = P[(i + 1) % m];
+    area += p[0] * q[1] - q[0] * p[1];
+  }
+  const dir = path.closed && area < 0 ? -1 : 1;
+  const normal = (p: Vec2, q: Vec2): Vec2 => {
+    const dx = q[0] - p[0];
+    const dy = q[1] - p[1];
+    const l = Math.hypot(dx, dy) || 1;
+    return [(dy / l) * dir, (-dx / l) * dir];
+  };
+  const out: Vec2[] = [];
+  for (let i = 0; i < m; i++) {
+    const prev = path.closed ? P[(i - 1 + m) % m] : P[Math.max(0, i - 1)];
+    const next = path.closed ? P[(i + 1) % m] : P[Math.min(m - 1, i + 1)];
+    const n1 = i === 0 && !path.closed ? normal(P[0], P[1]) : normal(prev, P[i]);
+    const n2 = i === m - 1 && !path.closed ? normal(P[m - 2], P[m - 1]) : normal(P[i], next);
+    const bx = n1[0] + n2[0];
+    const by = n1[1] + n2[1];
+    const bl = Math.hypot(bx, by);
+    if (bl < 1e-6) {
+      out.push([P[i][0] + n1[0] * amount, P[i][1] + n1[1] * amount]);
+      continue;
+    }
+    const cos = (n1[0] * n2[0] + n1[1] * n2[1] + 1) / 2; // cos^2 of half angle
+    const miter = 1 / Math.sqrt(Math.max(cos, 1e-6));
+    // An outer corner (the offset pulls the two edges apart) gets an arc for round joins.
+    const outer = Math.sign(amount) * (n1[0] * (next[0] - P[i][0]) + n1[1] * (next[1] - P[i][1])) < 0;
+    if (join === "round" && miter > 1.05 && outer) {
+      // Outer corner: arc from n1 to n2.
+      const a1 = Math.atan2(n1[1], n1[0]);
+      let a2 = Math.atan2(n2[1], n2[0]);
+      while (a2 - a1 > Math.PI) a2 -= 2 * Math.PI;
+      while (a1 - a2 > Math.PI) a2 += 2 * Math.PI;
+      for (let s = 0; s <= 6; s++) {
+        const a = a1 + ((a2 - a1) * s) / 6;
+        out.push([P[i][0] + Math.cos(a) * amount, P[i][1] + Math.sin(a) * amount]);
+      }
+      continue;
+    }
+    const k = Math.min(miter, 4) * amount;
+    out.push([P[i][0] + (bx / bl) * k, P[i][1] + (by / bl) * k]);
+  }
+  const f = (x: number) => Math.round(x * 100) / 100;
+  return "M" + out.map((p) => `${f(p[0])} ${f(p[1])}`).join("L") + (path.closed ? "Z" : "");
+}

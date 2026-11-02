@@ -6,7 +6,8 @@
  * Each command mutates an Immer draft; the Editor (history.ts) records the
  * resulting patches for undo/redo and change sets.
  */
-import { makeComposition, makeEffect, makeGeometry, makeLayer, prop, type MakeLayerOpts } from "./factory";
+import { makeComposition, makeEffect, makeGeometry, makeLayer, makeOffsetPath, makeRepeater, prop, type MakeLayerOpts } from "./factory";
+import { checkSyntax } from "./expressions";
 import { rectPath } from "./geometry";
 import { newId } from "./id";
 import { valueAt } from "./interpolate";
@@ -81,6 +82,9 @@ export type Command =
   | ({ type: "geometry.remove"; geometryId: string } & LayerRef)
   | ({ type: "animator.add"; preset?: "fadeIn" | "slideUp" | "scaleIn" | "blank"; id?: string } & LayerRef)
   | ({ type: "animator.remove"; animatorId: string } & LayerRef)
+  | ({ type: "prop.setExpression"; expression: string | null } & PropRef)
+  | ({ type: "shape.addOperator"; operator: "repeater" | "offsetPath" } & LayerRef)
+  | ({ type: "shape.removeOperator"; operator: "repeater" | "offsetPath" } & LayerRef)
   | ({ type: "effect.add"; kind: EffectKind; index?: number; id?: string } & LayerRef)
   | ({ type: "effect.update"; effectId: string; enabled?: boolean; gradient?: "linear" | "radial"; toIndex?: number } & LayerRef)
   | ({ type: "effect.remove"; effectId: string } & LayerRef)
@@ -162,6 +166,8 @@ const PATCHABLE_LAYER_KEYS = new Set([
   "animators",
   "compId",
   "timeOffset",
+  "repeater",
+  "offsetPath",
 ]);
 
 /**
@@ -602,6 +608,36 @@ export function applyCommand(p: Project, cmd: Command): unknown {
       const l = getLayer(getComp(p, cmd.compId), cmd.layerId);
       if (l.type !== "text") throw new CommandError("Not a text layer");
       l.animators = l.animators.filter((a) => a.id !== cmd.animatorId);
+      return;
+    }
+    case "prop.setExpression": {
+      const l = getLayer(getComp(p, cmd.compId), cmd.layerId);
+      const pr = needProp(l, cmd.path);
+      const src = cmd.expression?.trim() ?? "";
+      if (!src) {
+        delete pr.expression;
+        return;
+      }
+      if (src.length > 4000) throw new CommandError("Expression is too long (4000 characters max)");
+      const kind = typeof pr.value;
+      if (kind !== "number" && kind !== "string" && !Array.isArray(pr.value))
+        throw new CommandError("Expressions work on numbers, positions/sizes and colours, not paths");
+      try {
+        checkSyntax(src);
+      } catch (e) {
+        throw new CommandError(`Expression error: ${(e as Error).message}`);
+      }
+      pr.expression = src;
+      return;
+    }
+    case "shape.addOperator":
+    case "shape.removeOperator": {
+      const l = getLayer(getComp(p, cmd.compId), cmd.layerId);
+      if (l.type !== "shape") throw new CommandError("Repeaters and offset paths need a shape layer");
+      if (cmd.operator !== "repeater" && cmd.operator !== "offsetPath") throw new CommandError(`Unknown operator: ${cmd.operator}`);
+      if (cmd.type === "shape.removeOperator") delete l[cmd.operator];
+      else if (cmd.operator === "repeater") l.repeater ??= makeRepeater();
+      else l.offsetPath ??= makeOffsetPath();
       return;
     }
     case "effect.add": {

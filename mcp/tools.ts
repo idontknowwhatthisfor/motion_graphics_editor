@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { Command } from "../src/core/commands";
 import { EASE_PRESET_NAMES, easePreset, type EasePresetName } from "../src/core/easing";
+import { checkExpression } from "../src/core/evaluate";
 import { makeEffect } from "../src/core/factory";
 import { newId } from "../src/core/id";
 import { isAnimated } from "../src/core/interpolate";
@@ -335,7 +336,7 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
   );
   tool(
     "add_effect",
-    "Add an effect to a layer (applied in stack order, previewed and exported identically). Kinds and their animatable paths under effects.<id>.: blur {amount}; glow {radius, intensity, color}; dropShadow {color, opacity, distance, angle (90 = down), softness}; colorCorrect {brightness, contrast, saturation (-100..100), hue (degrees)}; gradientOverlay {stops.<i>.color, start, end, opacity}. Set values with set_property / set_keyframes.",
+    "Add an effect to a layer (applied in stack order, previewed and exported identically). Kinds and their animatable paths under effects.<id>.: blur {amount}; glow {radius, intensity, color}; dropShadow {color, opacity, distance, angle (90 = down), softness}; colorCorrect {brightness, contrast, saturation (-100..100), hue (degrees)}; gradientOverlay {stops.<i>.color, start, end, opacity}. Set values with set_property / set_keyframes. To switch one off or remove it, use batch with effect.update {layerId, effectId, enabled:false} or effect.remove {layerId, effectId}.",
     { layerId, kind: z.enum(["blur", "glow", "dropShadow", "colorCorrect", "gradientOverlay"]), values: z.record(value).optional().describe("Initial static values, e.g. {amount: 20}"), compId },
     async (a) => {
       const s = await port.state();
@@ -353,16 +354,46 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
     },
   );
   tool(
-    "remove_effect",
-    "Remove an effect from a layer, or switch it off with enabled:false instead.",
-    { layerId, effectId: z.string(), enabled: z.boolean().optional().describe("Pass to toggle instead of removing"), compId },
+    "set_expression",
+    "Drive a property with an expression (pass null to remove). Safe formula language, not JavaScript: arithmetic on numbers/[x, y] arrays, `name = expr;` lines, cond ? a : b. Variables: value (keyframed value), time, frame, fps, inPoint, outPoint, index, width, height, duration. Functions: wiggle(freq, amp, octaves?, ampMult?), loopOut/loopIn(\"cycle\"|\"pingpong\"|\"offset\"|\"continue\"), valueAtTime(t), prop(layerNameOrId, path, t?) to link, linear/ease/easeIn/easeOut(t, tMin, tMax, a, b), clamp, min, max, abs, sin, cos, round, random(seed), noise(x), length, normalize, mixColor(a, b, t). Returns the value at the playhead or the error.",
+    { layerId, path: z.string(), expression: z.string().max(4000).nullable(), compId },
+    async (a) => {
+      const s = await port.state();
+      const ids = resolveLayerIds(s, [a.layerId]);
+      await edit(ids.map((id) => ({ type: "prop.setExpression", compId: a.compId, layerId: id, path: a.path, expression: a.expression })), a.expression ? `Expression on ${a.path}` : `Remove expression`);
+      const after = await port.state();
+      const c = comp(after, a.compId);
+      return ids.map((id) => ({ layerId: id, ...checkExpression(c, id, a.path, after.time) }));
+    },
+  );
+  tool(
+    "add_shape_operator",
+    "Add a repeater or an offset path to a shape layer (ED-09). repeater: copy k gets position/rotation/scale applied k times, so position [120, 0] makes a row and rotation 30 with an off-centre anchor makes a ring; opacity fades from startOpacity to endOpacity; animatable paths repeater.{copies, offset, position, anchor, scale, rotation, startOpacity, endOpacity}. offsetPath: grows (+) or shrinks (-) the outline by amount px; animatable path offsetPath.amount.",
+    {
+      layerId,
+      kind: z.enum(["repeater", "offsetPath"]),
+      copies: z.number().int().min(0).max(200).optional(),
+      position: vec2.optional(),
+      rotation: z.number().optional(),
+      scale: vec2.optional(),
+      anchor: vec2.optional(),
+      startOpacity: z.number().optional(),
+      endOpacity: z.number().optional(),
+      amount: z.number().optional().describe("offsetPath only"),
+      corners: z.enum(["round", "miter"]).optional().describe("offsetPath only"),
+      compId,
+    },
     async (a) => {
       const s = await port.state();
       const l = resolveLayer(s, a.layerId, a.compId);
-      return edit(
-        [a.enabled === undefined ? { type: "effect.remove", compId: a.compId, layerId: l.id, effectId: a.effectId } : { type: "effect.update", compId: a.compId, layerId: l.id, effectId: a.effectId, enabled: a.enabled }],
-        a.enabled === undefined ? "Remove effect" : "Toggle effect",
-      );
+      const cmds: Command[] = [{ type: "shape.addOperator", compId: a.compId, layerId: l.id, operator: a.kind }];
+      const vals: Record<string, unknown> =
+        a.kind === "repeater"
+          ? { copies: a.copies, position: a.position, rotation: a.rotation, scale: a.scale, anchor: a.anchor, startOpacity: a.startOpacity, endOpacity: a.endOpacity }
+          : { amount: a.amount };
+      for (const [k, v] of Object.entries(vals)) if (v !== undefined) cmds.push({ type: "prop.set", compId: a.compId, layerId: l.id, path: `${a.kind}.${k}`, value: v as never });
+      if (a.kind === "offsetPath" && a.corners) cmds.push({ type: "layer.update", compId: a.compId, layerId: l.id, patch: { offsetPath: { join: a.corners } } });
+      return edit(cmds, a.kind === "repeater" ? "Add repeater" : "Offset path");
     },
   );
   tool(
@@ -453,7 +484,7 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
   // ----- Apply in bulk -----
   tool(
     "batch",
-    "Run many raw Command API commands as ONE atomic edit (all or nothing). Commands: layer.add {layerType, opts}, layer.update {layerId, patch}, layer.delete {layerIds}, layer.reorder {layerId, toIndex}, layer.duplicate, layer.split {layerId, t}, layer.shiftTime {layerIds, delta}, prop.set {layerId, path, value, t?}, prop.setKeyframes {layerId, path, keyframes:[{t, v, ease?}]}, keyframe.add/remove/move/update/setEase, marker.add, mask.add, geometry.add {layerId, kind}, animator.add, effect.add {layerId, kind}, effect.update {layerId, effectId, enabled?, toIndex?}, effect.remove, comp.precompose {layerIds}, comp.update, comp.resize, comp.duplicate. Ease objects: {kind:'linear'|'hold'} or {kind:'bezier',x1,y1,x2,y2}.",
+    "Run many raw Command API commands as ONE atomic edit (all or nothing). Commands: layer.add {layerType, opts}, layer.update {layerId, patch}, layer.delete {layerIds}, layer.reorder {layerId, toIndex}, layer.duplicate, layer.split {layerId, t}, layer.shiftTime {layerIds, delta}, prop.set {layerId, path, value, t?}, prop.setKeyframes {layerId, path, keyframes:[{t, v, ease?}]}, keyframe.add/remove/move/update/setEase, marker.add, mask.add, geometry.add {layerId, kind}, animator.add, effect.add {layerId, kind}, effect.update {layerId, effectId, enabled?, toIndex?}, effect.remove, comp.precompose {layerIds}, prop.setExpression {layerId, path, expression}, shape.addOperator {layerId, operator: repeater|offsetPath}, comp.update, comp.resize, comp.duplicate. Ease objects: {kind:'linear'|'hold'} or {kind:'bezier',x1,y1,x2,y2}.",
     { commands: z.array(z.object({ type: z.string() }).passthrough()).min(1).max(500), label: z.string().default("Batch edit") },
     async (a) => {
       const banned = a.commands.find((c) => c.type === "project.setPermissionMode" || c.type.startsWith("asset."));
@@ -504,6 +535,7 @@ export const SERVER_INSTRUCTIONS = `Motion Graphics Editor: you edit the user's 
 - Layers stack top-first (index 0 is on top). Shapes are centred on their position; text sits on its baseline.
 - Property paths: transform.{anchor,position,scale,rotation,opacity}, fill.paint.color, stroke.width, trim.{start,end,offset}, style.{size,tracking,fill}, geometry.<id>.{size,position,roundness}, animators.<id>.selector.{start,end,offset}, masks.<id>.path, effects.<id>.<param>. get_layer lists every path.
 - Effects (add_effect): blur, glow, dropShadow, colorCorrect, gradientOverlay. Nested comps: precompose, or add_layer type precomp with nestedCompId.
+- Procedural motion: set_expression (wiggle, loopOut, links to other layers) instead of hundreds of keyframes; add_shape_operator for repeaters (rows, rings) and offset paths.
 - Your edits land in a change set the user previews and keeps or rejects. Workflow: begin_change_set -> edits (prefer batch for many edits) -> render_frame / render_contact_sheet to check -> fix -> submit_change_set.
 - "this"/"these" in the user's request means the current selection: use get_selection or pass "selected" as a layerId.
 - Keep titles inside the 80% title-safe area. Default output is transparent overlays for DaVinci Resolve.
