@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { easeName } from "../core/easing";
 import { isAnimated, valueAt } from "../core/interpolate";
 import { getProp, listProps } from "../core/props";
@@ -99,8 +99,17 @@ export function Timeline() {
   const graph = useUI((s) => s.graph);
   const playing = useUI((s) => s.playing);
   const trackRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const playheadRef = useRef<HTMLDivElement>(null);
   const width = comp.duration * zoom;
   const frameW = zoom / comp.fps;
+  // Scrolled left of the visible track, the playhead would draw over the
+  // name column (and the empty area under it), so hide it there.
+  const syncPlayhead = () => {
+    const b = bodyRef.current;
+    if (b && playheadRef.current) playheadRef.current.style.visibility = time * zoom < b.scrollLeft ? "hidden" : "";
+  };
+  useLayoutEffect(syncPlayhead);
 
   const xToTime = (clientX: number) => {
     const r = trackRef.current!.getBoundingClientRect();
@@ -263,7 +272,7 @@ export function Timeline() {
         <span className="spacer" />
         <label>Zoom <input type="range" min={20} max={1200} value={zoom} onChange={(e) => setUI({ timelineZoom: Number(e.target.value) })} /></label>
       </div>
-      <div className="tl-body">
+      <div className="tl-body" ref={bodyRef} onScroll={syncPlayhead}>
         <div className="tl-row ruler-row" style={{ height: 26 }}>
           <div className="tl-name" style={{ width: NAME_W }}>
             <span className="muted">{comp.layers.length} layers · Alt-drag to skip snapping</span>
@@ -294,7 +303,7 @@ export function Timeline() {
           </div>
         </div>
         {rows}
-        <div className="playhead" style={{ left: NAME_W + time * zoom + frameW * 0 }} />
+        <div className="playhead" ref={playheadRef} style={{ left: NAME_W + time * zoom + frameW * 0 }} />
       </div>
       {graph && <GraphEditor />}
     </div>

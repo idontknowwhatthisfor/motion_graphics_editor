@@ -94,7 +94,8 @@ textarea { width: 100%; resize: vertical; }
 .tl-toolbar { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border-bottom: 1px solid var(--line); }
 .timecode { font: 600 15px ui-monospace, Menlo, monospace; color: var(--accent); width: 100px; }
 .tl-body { position: relative; overflow: auto; flex: 1; min-height: 0; }
-.tl-row { display: flex; border-bottom: 1px solid #23262d; }
+/* As wide as the track, so the sticky name column stays pinned however far you scroll. */
+.tl-row { display: flex; width: max-content; min-width: 100%; border-bottom: 1px solid #23262d; }
 .tl-row.layer.sel { background: var(--sel); }
 .tl-row.layer.hidden .bar { opacity: .35; }
 .tl-row.prop { background: #1a1d23; }
