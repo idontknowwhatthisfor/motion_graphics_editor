@@ -184,10 +184,14 @@ export async function exportDirect(project: Project, projectDir: string, compId:
     const ff = spawn("ffmpeg", ffmpegArgs(opts.format, fps, videoOut), { stdio: ["pipe", "inherit", "pipe"] });
     let err = "";
     ff.stderr.on("data", (d) => (err += d));
+    ff.stdin.on("error", () => undefined); // EPIPE if ffmpeg dies; reported through `done`
     const done = new Promise<void>((res, rej) => ff.on("close", (code) => (code === 0 ? res() : rej(new Error(`ffmpeg failed (${code}): ${err}`)))));
     for (let i = 0; i < total; i++) {
       if (opts.signal?.aborted) {
+        done.catch(() => undefined); // the kill below makes it reject; nobody awaits it now
         ff.kill("SIGKILL");
+        await new Promise((r) => ff.once("close", r)).catch(() => undefined);
+        rmSync(videoOut, { force: true });
         throw new Error("Export cancelled");
       }
       const png = await seekAndShoot(page, i / fps);

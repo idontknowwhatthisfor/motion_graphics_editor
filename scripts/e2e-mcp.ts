@@ -92,6 +92,28 @@ while (st.status === "running") {
 const pr = st.status === "done" ? await probe(st.out) : null;
 check(!!pr && pr.hasAlpha && pr.codec === "prores", `approved export finished: ${st.status} ${pr ? `${pr.pixFmt} ${pr.frames} frames` : ""}`);
 
+// CL-09: a waiting export reports progress; cancelling the waiting call cancels the export.
+const approve = async () => {
+  await page.waitForSelector("[data-testid=export-approval]");
+  await page.locator(".modal button.primary", { hasText: "Allow export" }).click();
+};
+const prog: number[] = [];
+const waited = client.callTool({ name: "export_start", arguments: { format: "gif", fps: 10, width: 320, wait: true } }, undefined, { onprogress: (p) => prog.push(p.progress), timeout: 600_000, resetTimeoutOnProgress: true });
+await approve();
+const w = JSON.parse((await waited as { content: { text: string }[] }).content[0].text);
+check(w.status === "done" && prog.length >= 3 && prog.at(-1) === w.total, `export_start wait:true finished with ${prog.length} progress updates (${w.status}, ${w.done}/${w.total})`);
+const long = data("export_start", { format: "prores4444" });
+await approve();
+const j3 = await long;
+const ctl = new AbortController();
+await client.callTool({ name: "export_status", arguments: { id: j3.id, wait: true } }, undefined, { signal: ctl.signal, onprogress: (p) => p.progress >= 5 && ctl.abort(), timeout: 600_000 }).catch(() => undefined);
+let s3 = await data("export_status", { id: j3.id });
+for (let i = 0; i < 20 && s3.status === "running"; i++) {
+  await new Promise((r) => setTimeout(r, 250));
+  s3 = await data("export_status", { id: j3.id });
+}
+check(s3.status === "cancelled", `cancelling the waiting call cancels the export (${s3.status} at ${s3.done}/${s3.total})`);
+
 check(errors.length === 0, `no browser errors ${errors.join(" | ")}`);
 await client.close();
 await browser.close();

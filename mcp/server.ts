@@ -13,12 +13,14 @@ import { bridgeInfoFile } from "../scripts/bridge";
 import { ROOT } from "../scripts/lib/node-export";
 import { closeFrames, contactSheet, renderFrames } from "./frames";
 import { BridgePort } from "./port";
+import { registerPrompts } from "./prompts";
 import { registerResources, registerTools, SERVER_INSTRUCTIONS } from "./tools";
 
 const port = new BridgePort(bridgeInfoFile(ROOT));
-const server = new McpServer({ name: "motion-graphics-editor", version: "0.2.0" }, { instructions: SERVER_INSTRUCTIONS });
+const server = new McpServer({ name: "motion-graphics-editor", version: "0.3.0" }, { instructions: SERVER_INSTRUCTIONS });
 registerTools(server, port, renderFrames, contactSheet);
 registerResources(server, port);
+registerPrompts(server);
 
 await server.connect(new StdioServerTransport());
 const shutdown = async () => {

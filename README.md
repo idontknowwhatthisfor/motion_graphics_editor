@@ -96,6 +96,15 @@ the Claude panel: hold "before" to compare, then Keep or Reject. Stop blocks
 Claude until you press Resume, and exports Claude asks for need your approval.
 Restart the Claude app after setup.
 
+Setup also installs a skill that teaches Claude the project format and
+motion conventions (for the Claude desktop app, upload
+`renders/motion-graphics-editor-skill.zip` in Settings › Capabilities ›
+Skills). Ready-made prompts appear in Claude's prompt menu: **Make
+variants**, **Retime to audio** and **Critique motion**. When Claude needs
+a choice from you, such as which brand font or the values for a template,
+it asks with a small form. Long exports report progress, and stopping
+Claude's request cancels the export.
+
 Command line export: `npm run export -- projects/<name>/project.json --resolve`
 (add `--engine hyperframes` to render with HyperFrames).
 

@@ -161,9 +161,21 @@ export (ED-23: VideoLayer with role reference|export; export extracts stills
 with FFmpeg into .cache/stills/ and the compiler points at them; audio is
 mixed and muxed in a second FFmpeg pass: pcm_s24le MOV, aac MP4, opus WebM).
 
-Remaining batch: 6 Claude extras (CL-09..CL-12).
+Batch 6 done: Claude extras. CL-09: export_start/export_status take
+`wait: true`, which polls the job and sends notifications/progress;
+aborting the tool call cancels the export (exporter now survives a cancel:
+the killed FFmpeg no longer leaves an unhandled rejection). Export
+status/cancel go through EditorPort (LocalPort fakes a job for tests).
+CL-10: MCP elicitation via `ask()` in mcp/tools.ts; fill_template with no
+values asks for every field, add_layer text with several brand fonts asks
+which font; without client support the tool tells Claude what to ask.
+CL-11: mcp/prompts.ts registers make_variants, retime_to_audio,
+critique_motion (prompts don't count toward the 30-tool cap). CL-12:
+skill/motion-graphics-editor/SKILL.md (format, units, paths, motion
+conventions); `npm run mcp:setup` installs it in ~/.claude/skills and zips
+it for the desktop app; also served as resource mge://skill.
 
-Then, in PRD order:
+Milestone 2 (P1) is complete. Then, in PRD order:
 1. Resolve-ready export polish and Gate 1 (kp finishes a 15 s overlay by hand).
 2. Mask path and gradient handles in the viewer; local font list.
 3. Frame cache for half-res playback if live SVG playback is too slow on the

@@ -7,7 +7,7 @@
  * shell PATH. Re-run after moving the folder or changing Node versions.
  */
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { dirname, join } from "node:path";
 import { ROOT } from "./lib/node-export";
@@ -53,4 +53,22 @@ if (!existsSync(dirname(desktopConfig))) {
     console.log(`Claude desktop app: registered in ${desktopConfig} (a backup was saved next to it). Quit and reopen the app.`);
   }
 }
+// CL-12: the bundled skill (project format + motion conventions).
+const skillSrc = join(ROOT, "skill/motion-graphics-editor");
+const skillDst = join(homedir(), ".claude/skills/motion-graphics-editor");
+if (dry) console.log(`\nSkill: would copy ${skillSrc} to ${skillDst}`);
+else {
+  rmSync(skillDst, { recursive: true, force: true });
+  mkdirSync(dirname(skillDst), { recursive: true });
+  cpSync(skillSrc, skillDst, { recursive: true });
+  console.log(`\nSkill: installed for Claude Code in ${skillDst}`);
+  if (platform() === "darwin") {
+    const zip = join(ROOT, "renders/motion-graphics-editor-skill.zip");
+    mkdirSync(dirname(zip), { recursive: true });
+    rmSync(zip, { force: true });
+    if (spawnSync("ditto", ["-c", "-k", "--keepParent", skillSrc, zip]).status === 0)
+      console.log(`Skill: for the Claude desktop app, upload ${zip} in Settings › Capabilities › Skills.`);
+  }
+}
+
 console.log("\nThen: keep the editor open (`npm run dev`) and ask Claude, e.g. “Using motion-graphics, build a lower third with my name”.");

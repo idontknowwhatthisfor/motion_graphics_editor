@@ -27,8 +27,17 @@ export interface EditorPort {
   finishChangeSet(): Promise<{ changeSetId?: string; status: string }>;
   activity(action: string | null): Promise<void>;
   requestExport(p: { format: string; fps?: number; width?: number }): Promise<{ id: string; out: string }>;
-  /** Base URL of the local dev server (export status/cancel). */
-  httpBase(): string | null;
+  exportStatus(id: string): Promise<ExportStatus>;
+  cancelExport(id: string): Promise<void>;
+}
+
+export interface ExportStatus {
+  id: string;
+  status: "running" | "done" | "failed" | "cancelled";
+  done: number;
+  total: number;
+  out?: string;
+  error?: string;
 }
 
 /** In-process port for tests and scripts. */
@@ -67,8 +76,16 @@ export class LocalPort implements EditorPort {
     if (!this.exportApproved) throw new Error("The user declined the export");
     return { id: "job_test", out: "/tmp/test.mov" };
   }
-  httpBase() {
-    return null;
+  /** Fake job for tests: advances 25% per status call unless cancelled. */
+  fakeJob: ExportStatus = { id: "job_test", status: "running", done: 0, total: 4, out: "/tmp/test.mov" };
+  async exportStatus(id: string): Promise<ExportStatus> {
+    if (id !== this.fakeJob.id) throw new Error("no such job");
+    const j = this.fakeJob;
+    if (j.status === "running" && ++j.done >= j.total) j.status = "done";
+    return { ...j };
+  }
+  async cancelExport() {
+    if (this.fakeJob.status === "running") this.fakeJob.status = "cancelled";
   }
 }
 
@@ -149,8 +166,19 @@ export class BridgePort implements EditorPort {
     // Waits for the user to approve in the editor (up to 10 minutes).
     return this.call<{ id: string; out: string }>("requestExport", p, 10 * 60 * 1000);
   }
-  httpBase() {
-    return (this.info ?? this.readInfo())?.http ?? null;
+  private httpBase() {
+    const base = (this.info ?? this.readInfo())?.http;
+    if (!base) throw new Error("The editor is not running");
+    return base as string;
+  }
+  async exportStatus(id: string): Promise<ExportStatus> {
+    const r = await fetch(`${this.httpBase()}/api/export/status?id=${encodeURIComponent(id)}`);
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error ?? `export status failed (${r.status})`);
+    return body;
+  }
+  async cancelExport(id: string) {
+    await fetch(`${this.httpBase()}/api/export/cancel?id=${encodeURIComponent(id)}`, { method: "POST" });
   }
   close() {
     this.ws?.close();
