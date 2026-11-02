@@ -13,6 +13,7 @@ import type {
   Color,
   CombineMode,
   Composition,
+  Effect,
   Layer,
   MaskMode,
   MatteMode,
@@ -80,7 +81,15 @@ export type ResolvedContent =
     }
   | { type: "image"; src: string; width: number; height: number }
   | { type: "null" }
-  | { type: "reference"; src: string; width: number; height: number; mediaTime: number };
+  | { type: "reference"; src: string; width: number; height: number; mediaTime: number }
+  | { type: "precomp"; width: number; height: number; scene: ResolvedScene | null };
+
+export type ResolvedEffect =
+  | { kind: "blur"; amount: number }
+  | { kind: "glow"; radius: number; intensity: number; color: Color }
+  | { kind: "dropShadow"; color: Color; opacity: number; dx: number; dy: number; softness: number }
+  | { kind: "colorCorrect"; brightness: number; contrast: number; saturation: number; hue: number }
+  | { kind: "gradientOverlay"; gradient: "linear" | "radial"; stops: { offset: number; color: Color }[]; start: Vec2; end: Vec2; opacity: number };
 
 export interface ResolvedLayer {
   id: string;
@@ -95,6 +104,7 @@ export interface ResolvedLayer {
   /** Inside its in/out range and switched on. */
   active: boolean;
   content: ResolvedContent;
+  effects: ResolvedEffect[];
 }
 
 export interface ResolvedScene {
@@ -111,6 +121,45 @@ export interface EvaluateOptions {
   includeReference?: boolean;
   /** Resolve an asset to a URL the renderer can load. */
   assetUrl?: (a: Asset) => string;
+  /** Internal: nesting depth for precomps. */
+  depth?: number;
+}
+
+const MAX_NEST = 8;
+
+export function resolveEffects(effects: Effect[] | undefined, t: number): ResolvedEffect[] {
+  const out: ResolvedEffect[] = [];
+  for (const e of effects ?? []) {
+    if (!e.enabled) continue;
+    switch (e.kind) {
+      case "blur":
+        out.push({ kind: "blur", amount: Math.max(0, valueAt(e.amount, t)) });
+        break;
+      case "glow":
+        out.push({ kind: "glow", radius: Math.max(0, valueAt(e.radius, t)), intensity: Math.max(0, valueAt(e.intensity, t)) / 100, color: valueAt(e.color, t) });
+        break;
+      case "dropShadow": {
+        const a = (valueAt(e.angle, t) * Math.PI) / 180;
+        const d = valueAt(e.distance, t);
+        out.push({ kind: "dropShadow", color: valueAt(e.color, t), opacity: valueAt(e.opacity, t) / 100, dx: Math.cos(a) * d, dy: Math.sin(a) * d, softness: Math.max(0, valueAt(e.softness, t)) });
+        break;
+      }
+      case "colorCorrect":
+        out.push({ kind: "colorCorrect", brightness: valueAt(e.brightness, t), contrast: valueAt(e.contrast, t), saturation: valueAt(e.saturation, t), hue: valueAt(e.hue, t) });
+        break;
+      case "gradientOverlay":
+        out.push({
+          kind: "gradientOverlay",
+          gradient: e.gradient,
+          stops: e.stops.map((st) => ({ offset: st.offset, color: valueAt(st.color, t) })),
+          start: valueAt(e.start, t),
+          end: valueAt(e.end, t),
+          opacity: valueAt(e.opacity, t) / 100,
+        });
+        break;
+    }
+  }
+  return out;
 }
 
 function resolvePaint(p: Paint, t: number): ResolvedPaint {
@@ -221,8 +270,29 @@ export function resolveChars(text: string, base: Color, animators: TextAnimator[
   return out;
 }
 
-function resolveContent(layer: Layer, t: number, assets: Map<string, Asset>, assetUrl: (a: Asset) => string): ResolvedContent {
+type EvalProject = Pick<Project, "assets"> & Partial<Pick<Project, "compositions">>;
+
+/** Prefix nested layer ids so SVG ids stay unique when a comp is reused. */
+function prefixScene(scene: ResolvedScene, prefix: string): ResolvedScene {
+  return {
+    ...scene,
+    layers: scene.layers.map((l) => ({ ...l, id: `${prefix}__${l.id}`, matte: l.matte ? { ...l.matte, layerId: `${prefix}__${l.matte.layerId}` } : null })),
+  };
+}
+
+function resolveContent(layer: Layer, t: number, assets: Map<string, Asset>, assetUrl: (a: Asset) => string, project: EvalProject, opts: EvaluateOptions): ResolvedContent {
   switch (layer.type) {
+    case "precomp": {
+      const child = project.compositions?.find((c) => c.id === layer.compId);
+      if (!child) return { type: "precomp", width: 100, height: 100, scene: null };
+      const depth = (opts.depth ?? 0) + 1;
+      const ct = t - layer.inPoint + layer.timeOffset;
+      const scene =
+        depth > MAX_NEST || ct < 0 || ct >= child.duration
+          ? null
+          : prefixScene(evaluateComposition(project, child, ct, { ...opts, depth }), layer.id);
+      return { type: "precomp", width: child.width, height: child.height, scene };
+    }
     case "solid":
       return { type: "solid", color: valueAt(layer.color, t), width: layer.width, height: layer.height };
     case "null":
@@ -302,7 +372,7 @@ export function worldMatrix(comp: Composition, layer: Layer, t: number, seen = n
 }
 
 export function evaluateComposition(
-  project: Pick<Project, "assets">,
+  project: EvalProject,
   comp: Composition,
   t: number,
   opts: EvaluateOptions = {},
@@ -331,7 +401,8 @@ export function evaluateComposition(
       matte: l.matte,
       isMatteSource: matteSources.has(l.id),
       active: l.visible && t >= l.inPoint && t < l.outPoint,
-      content: resolveContent(l, t, assets, assetUrl),
+      content: resolveContent(l, t, assets, assetUrl, project, opts),
+      effects: resolveEffects(l.effects, t),
     });
   }
   return { width: comp.width, height: comp.height, background: comp.background, time: t, layers };

@@ -14,6 +14,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, extname, join, resolve } from "node:path";
 import type { Plugin, ViteDevServer } from "vite";
 import { attachBridge } from "./bridge";
+import type { ExportFormat } from "./lib/node-export";
 
 const ROOT = process.cwd();
 const PROJECTS = join(ROOT, "projects");
@@ -140,14 +141,15 @@ export function projectStorePlugin(): Plugin {
             return json(res, 200, { src: `assets/${basename(target)}` });
           }
           if (path === "/api/export" && req.method === "POST") {
-            const opts = JSON.parse((await body(req)).toString("utf8")) as { format: "prores4444" | "mp4" | "png"; fps?: number; width?: number; compId?: string };
+            const opts = JSON.parse((await body(req)).toString("utf8")) as { format: ExportFormat; fps?: number; width?: number; compId?: string };
             const f = join(dir, "project.json");
             if (!existsSync(f)) return json(res, 400, { error: "Save the project first" });
             const { parseProject } = await server.ssrLoadModule("/src/core/project-io.ts");
-            const { exportDirect } = await server.ssrLoadModule("/scripts/lib/node-export.ts");
+            const { exportDirect, EXPORT_FORMATS, EXPORT_EXT } = await server.ssrLoadModule("/scripts/lib/node-export.ts");
             const project = parseProject(readFileSync(f, "utf8"));
             const comp = project.compositions.find((c: { id: string }) => c.id === (opts.compId ?? project.activeCompId));
-            const ext = opts.format === "mp4" ? ".mp4" : opts.format === "png" ? "" : ".mov";
+            if (!EXPORT_FORMATS.includes(opts.format)) return json(res, 400, { error: `Unknown format: ${opts.format}` });
+            const ext: string = EXPORT_EXT[opts.format];
             mkdirSync(RENDERS, { recursive: true });
             const out = join(RENDERS, `${name}-${safeName(comp?.name ?? "comp")}-${Date.now()}${ext}`);
             const job: ExportJob = { id: `job_${Date.now()}`, status: "running", done: 0, total: 0, out, abort: new AbortController() };

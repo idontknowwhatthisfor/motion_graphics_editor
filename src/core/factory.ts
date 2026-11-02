@@ -6,6 +6,9 @@ import type {
   Layer,
   LayerType,
   NullLayer,
+  PrecompLayer,
+  Effect,
+  EffectKind,
   Paint,
   Project,
   Prop,
@@ -92,6 +95,7 @@ function common(comp: Pick<Composition, "width" | "height" | "duration">, o: Lay
     transform: makeTransform(o.position ?? [comp.width / 2, comp.height / 2], anchor),
     masks: [],
     matte: null,
+    effects: [],
   };
 }
 
@@ -110,6 +114,8 @@ export interface MakeLayerOpts extends LayerOpts {
   shape?: Geometry["kind"];
   size?: Vec2;
   assetId?: string;
+  /** precomp: the nested composition id. */
+  compId?: string;
   width?: number;
   height?: number;
 }
@@ -174,9 +180,43 @@ export function makeLayer(type: LayerType, comp: Pick<Composition, "width" | "he
       };
       return l;
     }
+    case "precomp": {
+      const w = o.width ?? comp.width;
+      const h = o.height ?? comp.height;
+      const l: PrecompLayer = { ...common(comp, o, "Nested comp", [w / 2, h / 2]), type, compId: o.compId ?? "", timeOffset: 0 };
+      return l;
+    }
     case "null": {
       const l: NullLayer = { ...common(comp, o, "Null"), type };
       return l;
     }
+  }
+}
+
+/** A new effect with sensible defaults (ED-11). */
+export function makeEffect(kind: EffectKind, id = newId("fx")): Effect {
+  switch (kind) {
+    case "blur":
+      return { id, kind, enabled: true, amount: prop(10) };
+    case "glow":
+      return { id, kind, enabled: true, radius: prop(24), intensity: prop(100), color: prop("#ffffff") };
+    case "dropShadow":
+      return { id, kind, enabled: true, color: prop("#000000"), opacity: prop(60), distance: prop(8), angle: prop(90), softness: prop(16) };
+    case "colorCorrect":
+      return { id, kind, enabled: true, brightness: prop(0), contrast: prop(0), saturation: prop(0), hue: prop(0) };
+    case "gradientOverlay":
+      return {
+        id,
+        kind,
+        enabled: true,
+        gradient: "linear",
+        stops: [
+          { offset: 0, color: prop("#f97316") },
+          { offset: 1, color: prop("#ec4899") },
+        ],
+        start: prop<Vec2>([-300, 0]),
+        end: prop<Vec2>([300, 0]),
+        opacity: prop(100),
+      };
   }
 }

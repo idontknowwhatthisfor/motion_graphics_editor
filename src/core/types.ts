@@ -196,6 +196,52 @@ export interface TextStyle {
   stroke?: { color: Prop<Color>; width: Prop<number> };
 }
 
+/**
+ * Layer effects (ED-11), applied in order after masks, as SVG filters (GPU
+ * composited by Chrome). All sizes are composition pixels.
+ */
+export type Effect =
+  | { id: string; kind: "blur"; enabled: boolean; amount: Prop<number> }
+  | { id: string; kind: "glow"; enabled: boolean; radius: Prop<number>; intensity: Prop<number>; color: Prop<Color> }
+  | {
+      id: string;
+      kind: "dropShadow";
+      enabled: boolean;
+      color: Prop<Color>;
+      /** 0–100 */
+      opacity: Prop<number>;
+      distance: Prop<number>;
+      /** Degrees, 90 = straight down. */
+      angle: Prop<number>;
+      softness: Prop<number>;
+    }
+  | {
+      id: string;
+      kind: "colorCorrect";
+      enabled: boolean;
+      /** -100..100 */
+      brightness: Prop<number>;
+      /** -100..100 */
+      contrast: Prop<number>;
+      /** -100..100 */
+      saturation: Prop<number>;
+      /** Degrees */
+      hue: Prop<number>;
+    }
+  | {
+      id: string;
+      kind: "gradientOverlay";
+      enabled: boolean;
+      gradient: "linear" | "radial";
+      stops: GradientStop[];
+      /** Layer-space points. */
+      start: Prop<Vec2>;
+      end: Prop<Vec2>;
+      /** 0–100 */
+      opacity: Prop<number>;
+    };
+export type EffectKind = Effect["kind"];
+
 interface LayerCommon {
   id: string;
   name: string;
@@ -209,6 +255,8 @@ interface LayerCommon {
   transform: Transform;
   masks: Mask[];
   matte: TrackMatte | null;
+  /** Effects stack (ED-11). Optional for files written before Milestone 2. */
+  effects?: Effect[];
   /** UI colour label. */
   label?: string;
 }
@@ -248,7 +296,16 @@ export interface ReferenceVideoLayer extends LayerCommon {
   mediaOffset: number;
 }
 
+/** Nested composition (ED-02). */
+export interface PrecompLayer extends LayerCommon {
+  type: "precomp";
+  compId: string;
+  /** Seconds into the nested comp at this layer's inPoint. */
+  timeOffset: number;
+}
+
 export type Layer =
+  | PrecompLayer
   | SolidLayer
   | ShapeLayer
   | TextLayer

@@ -223,7 +223,90 @@ function layerContent(ctx: Ctx, L: ResolvedLayer): VNode[] {
       return textContent(ctx, L);
     case "null":
       return [];
+    case "precomp": {
+      if (!c.scene) return [];
+      const clip = `clip_${safe(L.id)}`;
+      ctx.defs.push(h("clipPath", clip, { id: clip }, [h("rect", "r", { x: 0, y: 0, width: c.width, height: c.height })]));
+      const inner: Ctx = { ...ctx, scene: c.scene };
+      return [h("g", "nest", { "clip-path": `url(#${clip})` }, sceneBody(inner, c.scene, true))];
+    }
   }
+}
+
+/** Effects (ED-11) as one SVG filter chain; returns a filter url or undefined. */
+function effectFilter(ctx: Ctx, L: ResolvedLayer): string | undefined {
+  const fx = L.effects.filter((e) => e.kind !== "gradientOverlay");
+  if (!fx.length) return undefined;
+  const id = `fx_${safe(L.id)}`;
+  const prims: VNode[] = [];
+  let cur = "SourceGraphic";
+  let n = 0;
+  const r = () => `r${n++}`;
+  for (const e of fx) {
+    if (e.kind === "blur") {
+      if (e.amount <= 0) continue;
+      const o = r();
+      prims.push(h("feGaussianBlur", o, { in: cur, stdDeviation: num(e.amount / 2), result: o }));
+      cur = o;
+    } else if (e.kind === "colorCorrect") {
+      const slope = Math.max(0, 1 + e.contrast / 100);
+      const intercept = (1 - slope) / 2 + e.brightness / 200;
+      const o = r();
+      const f = (ch: string) => h(`feFunc${ch}`, ch, { type: "linear", slope: num(slope), intercept: num(intercept) });
+      prims.push(h("feComponentTransfer", o, { in: cur, result: o }, [f("R"), f("G"), f("B")]));
+      cur = o;
+      if (e.saturation) {
+        const o2 = r();
+        prims.push(h("feColorMatrix", o2, { in: cur, type: "saturate", values: num(Math.max(0, 1 + e.saturation / 100)), result: o2 }));
+        cur = o2;
+      }
+      if (e.hue) {
+        const o3 = r();
+        prims.push(h("feColorMatrix", o3, { in: cur, type: "hueRotate", values: num(e.hue), result: o3 }));
+        cur = o3;
+      }
+    } else if (e.kind === "dropShadow" || e.kind === "glow") {
+      const color = e.color;
+      const fl = r();
+      const sh = r();
+      const bl = r();
+      prims.push(h("feFlood", fl, { "flood-color": color, "flood-opacity": e.kind === "dropShadow" ? num(e.opacity) : 1, result: fl }));
+      prims.push(h("feComposite", sh, { in: fl, in2: cur, operator: "in", result: sh }));
+      const soft = e.kind === "dropShadow" ? e.softness : e.radius;
+      prims.push(h("feGaussianBlur", bl, { in: sh, stdDeviation: num(soft / 2), result: bl }));
+      let under = bl;
+      if (e.kind === "dropShadow") {
+        const of = r();
+        prims.push(h("feOffset", of, { in: bl, dx: num(e.dx), dy: num(e.dy), result: of }));
+        under = of;
+      } else {
+        const gi = r();
+        prims.push(h("feComponentTransfer", gi, { in: bl, result: gi }, [h("feFuncA", "A", { type: "linear", slope: num(e.intensity) })]));
+        under = gi;
+      }
+      const m = r();
+      prims.push(h("feMerge", m, { result: m }, [h("feMergeNode", "a", { in: under }), h("feMergeNode", "b", { in: cur })]));
+      cur = m;
+    }
+  }
+  if (!prims.length) return undefined;
+  const { width: W, height: H } = ctx.scene;
+  ctx.defs.push(h("filter", id, { id, filterUnits: "userSpaceOnUse", x: -W, y: -H, width: 3 * W, height: 3 * H, "color-interpolation-filters": "sRGB" }, prims));
+  return `url(#${id})`;
+}
+
+/** Gradient overlay effects: a gradient clipped to the layer's own alpha. */
+function gradientOverlays(ctx: Ctx, L: ResolvedLayer, content: VNode[]): VNode[] {
+  const out: VNode[] = [];
+  L.effects.forEach((e, i) => {
+    if (e.kind !== "gradientOverlay" || e.opacity <= 0) return;
+    const key = `${safe(L.id)}_go${i}`;
+    const fill = paintRef(ctx, { kind: e.gradient, stops: e.stops, start: e.start, end: e.end }, key);
+    const mid = `gm_${key}`;
+    ctx.defs.push(h("mask", mid, { id: mid, maskUnits: "userSpaceOnUse", x: -BIG, y: -BIG, width: 2 * BIG, height: 2 * BIG, style: "mask-type:alpha" }, content));
+    out.push(h("g", `go${i}`, { mask: `url(#${mid})` }, [h("path", "p", { d: BIG_RECT, fill, opacity: e.opacity < 1 ? num(e.opacity) : undefined })]));
+  });
+  return out;
 }
 
 /** Layer masks (ED-04): composed in layer space. Returns a mask url or undefined. */
@@ -253,17 +336,19 @@ function layerMask(ctx: Ctx, L: ResolvedLayer): string | undefined {
   return `url(#${id})`;
 }
 
-function layerNode(ctx: Ctx, L: ResolvedLayer, keyPrefix = ""): VNode {
-  const inner = h("g", "content", { transform: matrix(L.matrix), mask: layerMask(ctx, L), "data-content": L.id }, layerContent(ctx, L));
+function layerNode(ctx: Ctx, L: ResolvedLayer, keyPrefix = "", selectable = true): VNode {
+  const content = layerContent(ctx, L);
+  const inner = h("g", "content", { transform: matrix(L.matrix), mask: layerMask(ctx, L), "data-content": selectable ? L.id : undefined }, [...content, ...gradientOverlays(ctx, L, content)]);
+  const filter = effectFilter(ctx, L);
   return h(
     "g",
     keyPrefix + L.id,
     {
-      "data-layer": keyPrefix ? undefined : L.id,
+      "data-layer": keyPrefix || !selectable ? undefined : L.id,
       opacity: L.opacity < 1 ? num(L.opacity) : undefined,
       style: L.blendMode !== "normal" ? `mix-blend-mode:${L.blendMode}` : undefined,
     },
-    [inner],
+    [filter ? h("g", "fx", { filter }, [inner]) : inner],
   );
 }
 
@@ -287,17 +372,22 @@ function matteMask(ctx: Ctx, L: ResolvedLayer, src: ResolvedLayer | undefined): 
   return `url(#${id})`;
 }
 
-export function sceneToVNodes(scene: ResolvedScene, measure: MeasureText): { defs: VNode[]; body: VNode[] } {
-  const ctx: Ctx = { defs: [], measure, scene };
+function sceneBody(ctx: Ctx, scene: ResolvedScene, nested: boolean): VNode[] {
   const byId = new Map(scene.layers.map((l) => [l.id, l]));
   const body: VNode[] = [];
   if (scene.background) body.push(h("rect", "__bg", { x: 0, y: 0, width: scene.width, height: scene.height, fill: scene.background }));
   for (const L of scene.layers) {
     if (!L.active || L.isMatteSource || L.content.type === "null") continue;
-    const node = layerNode(ctx, L);
+    const node = layerNode(ctx, L, "", !nested);
     if (L.matte) node.attrs.mask = matteMask(ctx, L, byId.get(L.matte.layerId));
     body.push(node);
   }
+  return body;
+}
+
+export function sceneToVNodes(scene: ResolvedScene, measure: MeasureText): { defs: VNode[]; body: VNode[] } {
+  const ctx: Ctx = { defs: [], measure, scene };
+  const body = sceneBody(ctx, scene, false);
   return { defs: ctx.defs, body };
 }
 

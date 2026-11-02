@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import type { Command } from "../src/core/commands";
 import { EASE_PRESET_NAMES, easePreset, type EasePresetName } from "../src/core/easing";
+import { makeEffect } from "../src/core/factory";
 import { newId } from "../src/core/id";
 import { isAnimated } from "../src/core/interpolate";
 import { getProp, listProps } from "../src/core/props";
@@ -202,7 +203,8 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
     "add_layer",
     "Add a layer. Positions are composition pixels (origin top-left). Shapes are centred on their position; text sits on its baseline at its position. Returns the new layerId.",
     {
-      type: z.enum(["shape", "text", "solid", "null"]),
+      type: z.enum(["shape", "text", "solid", "null", "precomp"]),
+      nestedCompId: z.string().optional().describe("precomp: the composition to nest (see get_project)"),
       name: z.string().optional(),
       position: vec2.optional(),
       text: z.string().optional(),
@@ -222,7 +224,9 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
     },
     async (a) => {
       const id = newId("layer");
-      const { type, index, parentId, compId: cid, ...opts } = a;
+      const { type, index, parentId, compId: cid, nestedCompId, ...rest } = a;
+      if (type === "precomp" && !nestedCompId) throw new Error("precomp needs nestedCompId");
+      const opts = type === "precomp" ? { ...rest, compId: nestedCompId } : rest;
       const cmds: Command[] = [{ type: "layer.add", compId: cid, layerType: type, index, opts: { ...opts, id } as never }];
       if (parentId) {
         const pid = parentId === "selected" ? resolveLayerIds(await port.state(), ["selected"])[0] : parentId;
@@ -329,6 +333,51 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
       return { maskId: id, path: `masks.${id}.path` };
     },
   );
+  tool(
+    "add_effect",
+    "Add an effect to a layer (applied in stack order, previewed and exported identically). Kinds and their animatable paths under effects.<id>.: blur {amount}; glow {radius, intensity, color}; dropShadow {color, opacity, distance, angle (90 = down), softness}; colorCorrect {brightness, contrast, saturation (-100..100), hue (degrees)}; gradientOverlay {stops.<i>.color, start, end, opacity}. Set values with set_property / set_keyframes.",
+    { layerId, kind: z.enum(["blur", "glow", "dropShadow", "colorCorrect", "gradientOverlay"]), values: z.record(value).optional().describe("Initial static values, e.g. {amount: 20}"), compId },
+    async (a) => {
+      const s = await port.state();
+      const ids = resolveLayerIds(s, [a.layerId]);
+      const out: { layerId: string; effectId: string; paths: string[] }[] = [];
+      const cmds: Command[] = [];
+      for (const lid of ids) {
+        const id = newId("fx");
+        cmds.push({ type: "effect.add", compId: a.compId, layerId: lid, kind: a.kind, id });
+        for (const [k, v] of Object.entries(a.values ?? {})) cmds.push({ type: "prop.set", compId: a.compId, layerId: lid, path: `effects.${id}.${k}`, value: v as never });
+        out.push({ layerId: lid, effectId: id, paths: listProps(makeEffect(a.kind) as never).map((p) => `effects.${id}.${p.path}`) });
+      }
+      await edit(cmds, `Add ${a.kind}`);
+      return out;
+    },
+  );
+  tool(
+    "remove_effect",
+    "Remove an effect from a layer, or switch it off with enabled:false instead.",
+    { layerId, effectId: z.string(), enabled: z.boolean().optional().describe("Pass to toggle instead of removing"), compId },
+    async (a) => {
+      const s = await port.state();
+      const l = resolveLayer(s, a.layerId, a.compId);
+      return edit(
+        [a.enabled === undefined ? { type: "effect.remove", compId: a.compId, layerId: l.id, effectId: a.effectId } : { type: "effect.update", compId: a.compId, layerId: l.id, effectId: a.effectId, enabled: a.enabled }],
+        a.enabled === undefined ? "Remove effect" : "Toggle effect",
+      );
+    },
+  );
+  tool(
+    "precompose",
+    "Move layers into a new composition and replace them with one nested comp layer (keeps their timing and look). Use it to build reusable pieces and to animate a group as one.",
+    { layerIds: z.array(z.string()).min(1), name: z.string().optional(), compId },
+    async (a) => {
+      const s = await port.state();
+      const ids = resolveLayerIds(s, a.layerIds);
+      const newCompId = newId("comp");
+      const newLayerId = newId("layer");
+      await edit([{ type: "comp.precompose", compId: a.compId, layerIds: ids, name: a.name, newCompId, newLayerId }], "Precompose");
+      return { compId: newCompId, layerId: newLayerId };
+    },
+  );
   tool("add_marker", "Add a composition marker (e.g. a beat or a section start).", { time: z.number(), label: z.string().default(""), compId }, async (a) =>
     edit([{ type: "marker.add", compId: a.compId, t: a.time, label: a.label }], "Add marker"),
   );
@@ -404,7 +453,7 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
   // ----- Apply in bulk -----
   tool(
     "batch",
-    "Run many raw Command API commands as ONE atomic edit (all or nothing). Commands: layer.add {layerType, opts}, layer.update {layerId, patch}, layer.delete {layerIds}, layer.reorder {layerId, toIndex}, layer.duplicate, layer.split {layerId, t}, layer.shiftTime {layerIds, delta}, prop.set {layerId, path, value, t?}, prop.setKeyframes {layerId, path, keyframes:[{t, v, ease?}]}, keyframe.add/remove/move/update/setEase, marker.add, mask.add, geometry.add {layerId, kind}, animator.add, comp.update, comp.resize, comp.duplicate. Ease objects: {kind:'linear'|'hold'} or {kind:'bezier',x1,y1,x2,y2}.",
+    "Run many raw Command API commands as ONE atomic edit (all or nothing). Commands: layer.add {layerType, opts}, layer.update {layerId, patch}, layer.delete {layerIds}, layer.reorder {layerId, toIndex}, layer.duplicate, layer.split {layerId, t}, layer.shiftTime {layerIds, delta}, prop.set {layerId, path, value, t?}, prop.setKeyframes {layerId, path, keyframes:[{t, v, ease?}]}, keyframe.add/remove/move/update/setEase, marker.add, mask.add, geometry.add {layerId, kind}, animator.add, effect.add {layerId, kind}, effect.update {layerId, effectId, enabled?, toIndex?}, effect.remove, comp.precompose {layerIds}, comp.update, comp.resize, comp.duplicate. Ease objects: {kind:'linear'|'hold'} or {kind:'bezier',x1,y1,x2,y2}.",
     { commands: z.array(z.object({ type: z.string() }).passthrough()).min(1).max(500), label: z.string().default("Batch edit") },
     async (a) => {
       const banned = a.commands.find((c) => c.type === "project.setPermissionMode" || c.type.startsWith("asset."));
@@ -416,8 +465,8 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
   // ----- Deliver (needs the user's approval in the editor) -----
   tool(
     "export_start",
-    "Ask the user to approve an export; on approval it starts and returns a job id. prores4444 = transparent .mov for DaVinci Resolve.",
-    { format: z.enum(["prores4444", "mp4", "png"]).default("prores4444"), fps: z.number().optional(), width: z.number().int().optional() },
+    "Ask the user to approve an export; on approval it starts and returns a job id. prores4444 = transparent .mov for DaVinci Resolve; webm = VP9 with alpha for the web; gif = small looping preview.",
+    { format: z.enum(["prores4444", "mp4", "png", "webm", "gif"]).default("prores4444"), fps: z.number().optional(), width: z.number().int().optional() },
     async (a) => port.requestExport(a),
   );
   tool(
@@ -453,7 +502,8 @@ export function registerResources(server: McpServer, port: EditorPort) {
 export const SERVER_INSTRUCTIONS = `Motion Graphics Editor: you edit the user's open motion-graphics project (layers + keyframes), not video pixels.
 - Units: pixels in composition space (origin top-left), time in SECONDS, rotation in degrees, scale and opacity in percent.
 - Layers stack top-first (index 0 is on top). Shapes are centred on their position; text sits on its baseline.
-- Property paths: transform.{anchor,position,scale,rotation,opacity}, fill.paint.color, stroke.width, trim.{start,end,offset}, style.{size,tracking,fill}, geometry.<id>.{size,position,roundness}, animators.<id>.selector.{start,end,offset}, masks.<id>.path. get_layer lists every path.
+- Property paths: transform.{anchor,position,scale,rotation,opacity}, fill.paint.color, stroke.width, trim.{start,end,offset}, style.{size,tracking,fill}, geometry.<id>.{size,position,roundness}, animators.<id>.selector.{start,end,offset}, masks.<id>.path, effects.<id>.<param>. get_layer lists every path.
+- Effects (add_effect): blur, glow, dropShadow, colorCorrect, gradientOverlay. Nested comps: precompose, or add_layer type precomp with nestedCompId.
 - Your edits land in a change set the user previews and keeps or rejects. Workflow: begin_change_set -> edits (prefer batch for many edits) -> render_frame / render_contact_sheet to check -> fix -> submit_change_set.
 - "this"/"these" in the user's request means the current selection: use get_selection or pass "selected" as a layerId.
 - Keep titles inside the 80% title-safe area. Default output is transparent overlays for DaVinci Resolve.

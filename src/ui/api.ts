@@ -78,7 +78,7 @@ export async function uploadAsset(file: File): Promise<string> {
 }
 
 export interface ExportRequest {
-  format: "prores4444" | "mp4" | "png";
+  format: "prores4444" | "mp4" | "png" | "webm" | "gif";
   fps?: number;
   width?: number;
 }

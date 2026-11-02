@@ -1,6 +1,6 @@
 /**
  * Export a project file.
- *   npm run export -- <project.json> [--format prores4444|mp4|png] [--out file]
+ *   npm run export -- <project.json> [--format prores4444|mp4|png|webm|gif] [--out file]
  *                     [--fps 30] [--width 1920] [--comp <id>] [--resolve]
  *                     [--engine direct|hyperframes]
  * --resolve: the Resolve-ready preset (ProRes 4444, straight alpha, .mov).
@@ -11,14 +11,14 @@ import { readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { parseProject } from "../src/core/project-io";
 import { spawnSync } from "node:child_process";
-import { exportDirect, hyperframesEnv, probe, ROOT, writeHyperFramesProject, type ExportFormat } from "./lib/node-export";
+import { exportDirect, hyperframesEnv, probe, ROOT, writeHyperFramesProject, type ExportFormat, EXPORT_EXT, EXPORT_FORMATS } from "./lib/node-export";
 
 export const HYPERFRAMES_VERSION = "0.9.4";
 
 const args = process.argv.slice(2);
 const file = args.find((a) => !a.startsWith("--"));
 if (!file) {
-  console.error("usage: npm run export -- <project.json> [--format prores4444|mp4|png] [--out path] [--fps n] [--width n] [--resolve]");
+  console.error("usage: npm run export -- <project.json> [--format prores4444|mp4|png|webm|gif] [--out path] [--fps n] [--width n] [--resolve]");
   process.exit(1);
 }
 const opt = (k: string) => {
@@ -27,12 +27,20 @@ const opt = (k: string) => {
 };
 const project = parseProject(readFileSync(file, "utf8"));
 const format = (args.includes("--resolve") ? "prores4444" : opt("format") ?? "prores4444") as ExportFormat;
-const ext = format === "mp4" ? ".mp4" : format === "png" ? "" : ".mov";
+if (!EXPORT_FORMATS.includes(format)) {
+  console.error(`unknown format ${format}`);
+  process.exit(2);
+}
+const ext = EXPORT_EXT[format];
 const out = resolve(opt("out") ?? join(ROOT, "renders", basename(file).replace(/\.json$/, "") + ext));
 if (opt("engine") === "hyperframes") {
   const dir = join(ROOT, ".cache", "hf-export");
   writeHyperFramesProject(project, dirname(resolve(file)), dir, opt("comp"));
-  const hfFormat = format === "mp4" ? "mp4" : format === "png" ? "png-sequence" : "mov";
+  if (format === "gif") {
+    console.error("GIF export uses the direct engine; drop --engine hyperframes");
+    process.exit(2);
+  }
+  const hfFormat = format === "mp4" ? "mp4" : format === "png" ? "png-sequence" : format === "webm" ? "webm" : "mov";
   const args = ["--yes", `hyperframes@${HYPERFRAMES_VERSION}`, "render", "--format", hfFormat, "--quality", "delivery", "-o", out];
   if (opt("fps")) args.push("--fps", opt("fps")!);
   const r = spawnSync("npx", args, { cwd: dir, stdio: "inherit", env: hyperframesEnv() });

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { Asset } from "../core/types";
 import { newId } from "../core/id";
+import { compContains } from "../core/commands";
 import { lowerThirdProject } from "../core/samples";
 import { saveProject, uploadAsset, openProject } from "./api";
 import { startBridge } from "./bridge-client";
@@ -73,6 +74,14 @@ async function importFiles(files: FileList | File[]) {
   }
 }
 
+/** Move the selected layers into a new comp and put a nested comp layer in their place (ED-02). */
+function precompose() {
+  const ui = getUI();
+  if (!ui.selection.length) return toast("Select layers to precompose", "error");
+  const r = run({ type: "comp.precompose", layerIds: ui.selection });
+  if (r.ok) setUI({ selection: [(r.results[0] as { layerId: string }).layerId] });
+}
+
 export function App() {
   const project = useProject();
   useEditorRevision();
@@ -83,6 +92,7 @@ export function App() {
   const toastMsg = useUI((s) => s.toast);
   const projectName = useUI((s) => s.projectName);
   const showReference = useUI((s) => s.showReference);
+  const selection = useUI((s) => s.selection);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Open the last project on start, else keep the sample.
@@ -151,6 +161,11 @@ export function App() {
         e.preventDefault();
         if (e.shiftKey) ui.selection.forEach((id) => run({ type: "layer.split", layerId: id, t: ui.time }));
         else ui.selection.forEach((id) => run({ type: "layer.duplicate", layerId: id }));
+        return;
+      }
+      if (mod && e.shiftKey && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        precompose();
         return;
       }
       if (mod && e.key.toLowerCase() === "k") {
@@ -240,8 +255,11 @@ export function App() {
         <select
           value=""
           onChange={(e) => {
-            const type = e.target.value as "solid" | "null" | "text" | "shape";
-            const r = run({ type: "layer.add", layerType: type, opts: type === "solid" ? { color: "#1d4ed8" } : {} });
+            const v = e.target.value;
+            if (v === "precompose") return precompose();
+            const r = v.startsWith("precomp:")
+              ? run({ type: "layer.add", layerType: "precomp", opts: { compId: v.slice(8) } })
+              : run({ type: "layer.add", layerType: v as "solid", opts: v === "solid" ? { color: "#1d4ed8" } : {} });
             if (r.ok) setUI({ selection: [(r.results[0] as { layerId: string }).layerId] });
           }}
         >
@@ -250,6 +268,12 @@ export function App() {
           <option value="text">Text</option>
           <option value="solid">Solid</option>
           <option value="null">Null</option>
+          {project.compositions
+            .filter((c) => !compContains(project, c.id, comp.id))
+            .map((c) => (
+              <option key={c.id} value={`precomp:${c.id}`}>Nested comp: {c.name}</option>
+            ))}
+          <option value="precompose" disabled={!selection.length}>Precompose selected (Cmd+Shift+C)</option>
         </select>
         <button onClick={() => fileRef.current?.click()} title="Import SVG, PNG, JPG, or a reference video (or drag files onto the window)">Import</button>
         <input ref={fileRef} type="file" multiple hidden accept=".svg,.png,.jpg,.jpeg,.mp4,.mov,.webm" onChange={(e) => e.target.files && importFiles(e.target.files)} />

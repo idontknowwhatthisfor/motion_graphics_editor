@@ -3,11 +3,20 @@ import { parseColor, formatColor } from "../core/color";
 import { isAnimated, valueAt } from "../core/interpolate";
 import { prop as mkProp } from "../core/factory";
 import { getProp } from "../core/props";
-import type { AnimValue, BlendMode, Layer, MatteMode, Paint, Vec2 } from "../core/types";
+import type { AnimValue, BlendMode, Effect, EffectKind, Layer, MatteMode, Paint, Vec2 } from "../core/types";
+import { compContains } from "../core/commands";
 import { activeComp, run, useProject, useUI } from "./state";
 
 const BLEND_MODES: BlendMode[] = ["normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity"];
 const FONTS = ["Inter, Helvetica Neue, Arial, sans-serif", "Helvetica Neue", "SF Pro Display", "Avenir Next", "Futura", "Gill Sans", "Georgia", "Times New Roman", "Menlo", "Arial Black"];
+
+const EFFECT_NAMES: Record<EffectKind, string> = {
+  blur: "Blur",
+  glow: "Glow",
+  dropShadow: "Drop shadow",
+  colorCorrect: "Colour correction",
+  gradientOverlay: "Gradient overlay",
+};
 
 // ---------- value widgets ----------
 function NumberField({ value, onChange, step = 1, min, max, onCommit }: { value: number; onChange: (v: number) => void; step?: number; min?: number; max?: number; onCommit?: () => void }) {
@@ -152,6 +161,67 @@ function PaintEditor({ layer, base, paint }: { layer: Layer; base: "fill" | "str
         </>
       )}
     </>
+  );
+}
+
+function EffectRows({ layer, e, index, count }: { layer: Layer; e: Effect; index: number; count: number }) {
+  const base = `effects.${e.id}`;
+  const ref = { layerId: layer.id, effectId: e.id };
+  return (
+    <div className="sub">
+      <div className="sub-head">
+        <label>
+          <input type="checkbox" checked={e.enabled} onChange={(ev) => run({ type: "effect.update", ...ref, enabled: ev.target.checked })} /> {EFFECT_NAMES[e.kind]}
+        </label>
+        <span>
+          <button disabled={index === 0} title="Move up" onClick={() => run({ type: "effect.update", ...ref, toIndex: index - 1 })}>↑</button>
+          <button disabled={index === count - 1} title="Move down" onClick={() => run({ type: "effect.update", ...ref, toIndex: index + 1 })}>↓</button>
+          <button title="Remove" onClick={() => run({ type: "effect.remove", ...ref })}>✕</button>
+        </span>
+      </div>
+      {e.kind === "blur" && <PropRow layer={layer} path={`${base}.amount`} label="Amount" min={0} />}
+      {e.kind === "glow" && (
+        <>
+          <PropRow layer={layer} path={`${base}.radius`} label="Radius" min={0} />
+          <PropRow layer={layer} path={`${base}.intensity`} label="Intensity %" min={0} />
+          <PropRow layer={layer} path={`${base}.color`} label="Colour" />
+        </>
+      )}
+      {e.kind === "dropShadow" && (
+        <>
+          <PropRow layer={layer} path={`${base}.color`} label="Colour" />
+          <PropRow layer={layer} path={`${base}.opacity`} label="Opacity %" min={0} max={100} />
+          <PropRow layer={layer} path={`${base}.distance`} label="Distance" />
+          <PropRow layer={layer} path={`${base}.angle`} label="Angle °" />
+          <PropRow layer={layer} path={`${base}.softness`} label="Softness" min={0} />
+        </>
+      )}
+      {e.kind === "colorCorrect" && (
+        <>
+          <PropRow layer={layer} path={`${base}.brightness`} label="Brightness" min={-100} max={100} />
+          <PropRow layer={layer} path={`${base}.contrast`} label="Contrast" min={-100} max={100} />
+          <PropRow layer={layer} path={`${base}.saturation`} label="Saturation" min={-100} max={100} />
+          <PropRow layer={layer} path={`${base}.hue`} label="Hue °" />
+        </>
+      )}
+      {e.kind === "gradientOverlay" && (
+        <>
+          <div className="prow">
+            <span className="plabel">Type</span>
+            <select value={e.gradient} onChange={(ev) => run({ type: "effect.update", ...ref, gradient: ev.target.value as "linear" })}>
+              <option value="linear">Linear</option>
+              <option value="radial">Radial</option>
+            </select>
+          </div>
+          {e.stops.map((_, i) => (
+            <PropRow key={i} layer={layer} path={`${base}.stops.${i}.color`} label={`Stop ${i + 1}`} />
+          ))}
+          <PropRow layer={layer} path={`${base}.start`} label={e.gradient === "radial" ? "Centre" : "Start"} />
+          <PropRow layer={layer} path={`${base}.end`} label={e.gradient === "radial" ? "Edge" : "End"} />
+          <PropRow layer={layer} path={`${base}.opacity`} label="Opacity %" min={0} max={100} />
+        </>
+      )}
+    </div>
   );
 }
 
@@ -402,6 +472,43 @@ export function Inspector() {
           </Section>
         </>
       )}
+
+      {layer.type === "precomp" && (
+        <Section title="Nested comp">
+          <div className="prow">
+            <span className="plabel">Source</span>
+            <select value={layer.compId} onChange={(e) => upd(layer, { compId: e.target.value })}>
+              {project.compositions
+                .filter((c) => c.id === layer.compId || !compContains(project, c.id, comp.id))
+                .map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+            </select>
+            <button title="Open the nested comp" onClick={() => run({ type: "comp.setActive", compId: layer.compId })}>Open</button>
+          </div>
+          <div className="prow">
+            <span className="plabel">Time offset s</span>
+            <NumberField value={layer.timeOffset} step={0.1} onChange={(v) => upd(layer, { timeOffset: v })} />
+          </div>
+        </Section>
+      )}
+
+      <Section
+        title="Effects"
+        right={
+          <select data-testid="add-effect" value="" onChange={(e) => run({ type: "effect.add", layerId: layer.id, kind: e.target.value as EffectKind })}>
+            <option value="" disabled>+ Add…</option>
+            {(Object.keys(EFFECT_NAMES) as EffectKind[]).map((k) => (
+              <option key={k} value={k}>{EFFECT_NAMES[k]}</option>
+            ))}
+          </select>
+        }
+      >
+        {(layer.effects ?? []).length === 0 && <div className="muted small">Effects stack top to bottom and render on the GPU in preview and export.</div>}
+        {(layer.effects ?? []).map((e, i, all) => (
+          <EffectRows key={e.id} layer={layer} e={e} index={i} count={all.length} />
+        ))}
+      </Section>
 
       <Section title="Masks" right={<button onClick={() => run({ type: "mask.add", layerId: layer.id })}>+ Mask</button>}>
         {layer.masks.length === 0 && <div className="muted small">Adds a rectangle mask around the layer origin; animate its path with keyframes.</div>}

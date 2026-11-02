@@ -78,7 +78,7 @@ const handlers: Record<string, Handler> = {
     const approved = await new Promise<boolean>((res) => (pendingExport = res));
     if (!approved) throw new Error("The user declined the export");
     await saveProject();
-    return startExport({ format: p.format as "prores4444", fps: p.fps, width: p.width });
+    return startExport({ format: p.format as "prores4444" | "mp4" | "png" | "webm" | "gif", fps: p.fps, width: p.width });
   },
 };
 

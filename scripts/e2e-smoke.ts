@@ -71,6 +71,15 @@ for (const [fx, fy] of [[0.2, 0.2], [0.35, 0.1], [0.45, 0.3]]) await page.mouse.
 await page.keyboard.press("Enter");
 check((await page.locator(".tl-row.layer .lname", { hasText: "Pen path" }).count()) === 1, "pen tool creates a path layer");
 
+// effects: add a blur to the new path layer (ED-11)
+await page.locator("[data-testid=add-effect]").selectOption("blur");
+check((await page.locator(".inspector .prow", { hasText: "Amount" }).count()) === 1 && (await page.locator(".viewer svg [filter]").count()) > 0, "adding a blur effect shows its controls and an SVG filter");
+
+// nested comps: precompose the selected layer (ED-02)
+await page.keyboard.press("Control+Shift+c");
+check((await page.locator(".tl-row.layer .lname", { hasText: "Pen path comp" }).count()) === 1 && (await page.locator(".inspector .section-head", { hasText: "Nested comp" }).count()) === 1, "precompose replaces the layer with a nested comp");
+await page.screenshot({ path: join(out, "02b-effects-precomp.png") });
+
 // composition settings: change fps
 await page.keyboard.press("Control+k");
 await page.locator(".modal label", { hasText: "Frame rate" }).locator("input").fill("25");

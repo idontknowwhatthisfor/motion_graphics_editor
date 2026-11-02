@@ -115,7 +115,21 @@ video, autosave + version history, export dialog with Resolve preset).
 Also done: local MCP server, bridge, setup command, connection status,
 current action, Stop, change-set review, export approval (CL-01..CL-08).
 
-Next, in PRD order:
+## Status (Milestone 2, P1; kp asked for it before Gate 1)
+
+Batch 1 done: effects stack (ED-11: blur, glow, drop shadow, colour
+correction, gradient overlay; `layer.effects`, commands effect.add/update/
+remove, paths `effects.<id>.<param>`, rendered as one SVG filter per layer in
+renderer.ts `effectFilter`), nested comps (ED-02: `precomp` layer with compId
++ timeOffset, `comp.precompose`, loop checks via `compContains`, child ids are
+prefixed `<layerId>__`, compiler ships every nested comp), WebM VP9 alpha and
+GIF export (ED-20). Tests in tests/m2.test.ts.
+
+Remaining batches: 2 Electron Mac app (ED-26); 3 expressions + repeaters/path
+offset (ED-12, ED-09); 4 brand kits + templates (ED-15, ED-16); 5 audio and
+video layers (ED-14, ED-23); 6 Claude extras (CL-09..CL-12).
+
+Then, in PRD order:
 1. Resolve-ready export polish and Gate 1 (kp finishes a 15 s overlay by hand).
 2. Mask path and gradient handles in the viewer; local font list.
 3. P1 Claude items: MCP elicitation for missing input (CL-10), prompts such

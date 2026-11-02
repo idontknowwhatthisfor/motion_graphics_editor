@@ -6,7 +6,7 @@
  * Each command mutates an Immer draft; the Editor (history.ts) records the
  * resulting patches for undo/redo and change sets.
  */
-import { makeComposition, makeGeometry, makeLayer, prop, type MakeLayerOpts } from "./factory";
+import { makeComposition, makeEffect, makeGeometry, makeLayer, prop, type MakeLayerOpts } from "./factory";
 import { rectPath } from "./geometry";
 import { newId } from "./id";
 import { valueAt } from "./interpolate";
@@ -16,6 +16,7 @@ import type {
   Asset,
   Composition,
   Ease,
+  EffectKind,
   Geometry,
   Keyframe,
   Layer,
@@ -23,6 +24,7 @@ import type {
   Marker,
   Mask,
   PermissionMode,
+  PrecompLayer,
   Project,
   TextAnimator,
   Vec2,
@@ -79,6 +81,10 @@ export type Command =
   | ({ type: "geometry.remove"; geometryId: string } & LayerRef)
   | ({ type: "animator.add"; preset?: "fadeIn" | "slideUp" | "scaleIn" | "blank"; id?: string } & LayerRef)
   | ({ type: "animator.remove"; animatorId: string } & LayerRef)
+  | ({ type: "effect.add"; kind: EffectKind; index?: number; id?: string } & LayerRef)
+  | ({ type: "effect.update"; effectId: string; enabled?: boolean; gradient?: "linear" | "radial"; toIndex?: number } & LayerRef)
+  | ({ type: "effect.remove"; effectId: string } & LayerRef)
+  | ({ type: "comp.precompose"; layerIds: string[]; name?: string; newCompId?: string; newLayerId?: string } & CompRef)
   | { type: "asset.add"; asset: Asset }
   | { type: "asset.remove"; assetId: string };
 
@@ -154,6 +160,8 @@ const PATCHABLE_LAYER_KEYS = new Set([
   "assetId",
   "mediaOffset",
   "animators",
+  "compId",
+  "timeOffset",
 ]);
 
 /**
@@ -180,6 +188,20 @@ function wouldCycle(c: Composition, layerId: string, parentId: string | null): b
     cur = c.layers.find((l) => l.id === cur)?.parentId ?? null;
   }
   return false;
+}
+
+/** Does comp `fromId` (transitively) contain a precomp of `targetId`? */
+export function compContains(p: Project, fromId: string, targetId: string, seen = new Set<string>()): boolean {
+  if (fromId === targetId) return true;
+  if (seen.has(fromId)) return false;
+  seen.add(fromId);
+  const c = p.compositions.find((x) => x.id === fromId);
+  if (!c) return false;
+  return c.layers.some((l) => l.type === "precomp" && compContains(p, l.compId, targetId, seen));
+}
+function checkPrecomp(p: Project, host: Composition, compId: string) {
+  if (!p.compositions.some((c) => c.id === compId)) throw new CommandError(`Composition not found: ${compId}`);
+  if (compContains(p, compId, host.id)) throw new CommandError("Nesting this composition would create a loop");
 }
 
 function cloneWithNewIds<T>(x: T): T {
@@ -295,6 +317,8 @@ export function applyCommand(p: Project, cmd: Command): unknown {
     case "comp.delete": {
       if (p.compositions.length <= 1) throw new CommandError("A project needs at least one composition");
       const c = getComp(p, cmd.compId);
+      const user = p.compositions.find((x) => x.id !== c.id && x.layers.some((l) => l.type === "precomp" && l.compId === c.id));
+      if (user) throw new CommandError(`"${c.name}" is nested in "${user.name}"; remove that layer first`);
       p.compositions = p.compositions.filter((x) => x.id !== c.id);
       if (p.activeCompId === c.id) p.activeCompId = p.compositions[0].id;
       return;
@@ -318,6 +342,14 @@ export function applyCommand(p: Project, cmd: Command): unknown {
       }
       if ((layer.type === "image" || layer.type === "reference") && !p.assets.some((a) => a.id === layer.assetId))
         throw new CommandError(`Asset not found: ${(layer as { assetId: string }).assetId}`);
+      if (layer.type === "precomp") {
+        checkPrecomp(p, c, layer.compId);
+        if (!cmd.layer && !cmd.opts?.width) {
+          const child = getComp(p, layer.compId);
+          layer.transform.anchor.value = [child.width / 2, child.height / 2];
+          if (!cmd.opts?.name) layer.name = child.name;
+        }
+      }
       const idx = Math.max(0, Math.min(c.layers.length, cmd.index ?? 0));
       c.layers.splice(idx, 0, layer);
       return { layerId: layer.id };
@@ -342,6 +374,11 @@ export function applyCommand(p: Project, cmd: Command): unknown {
         const pid = cmd.patch.parentId as string | null;
         if (pid !== null) getLayer(c, pid);
         if (wouldCycle(c, l.id, pid)) throw new CommandError("Parenting would create a cycle");
+      }
+      if ("compId" in cmd.patch || "timeOffset" in cmd.patch) {
+        if (l.type !== "precomp") throw new CommandError("compId and timeOffset only apply to nested comp layers");
+        if ("compId" in cmd.patch) checkPrecomp(p, c, String(cmd.patch.compId));
+        if ("timeOffset" in cmd.patch) finite(cmd.patch.timeOffset, "timeOffset");
       }
       if ("matte" in cmd.patch && cmd.patch.matte) {
         const m = cmd.patch.matte as { layerId: string };
@@ -566,6 +603,73 @@ export function applyCommand(p: Project, cmd: Command): unknown {
       if (l.type !== "text") throw new CommandError("Not a text layer");
       l.animators = l.animators.filter((a) => a.id !== cmd.animatorId);
       return;
+    }
+    case "effect.add": {
+      const l = getLayer(getComp(p, cmd.compId), cmd.layerId);
+      const kinds: EffectKind[] = ["blur", "glow", "dropShadow", "colorCorrect", "gradientOverlay"];
+      if (!kinds.includes(cmd.kind)) throw new CommandError(`Unknown effect: ${cmd.kind}`);
+      const e = makeEffect(cmd.kind, cmd.id);
+      l.effects ??= [];
+      if (l.effects.some((x) => x.id === e.id)) throw new CommandError("Effect id exists");
+      l.effects.splice(Math.max(0, Math.min(l.effects.length, cmd.index ?? l.effects.length)), 0, e);
+      return { effectId: e.id };
+    }
+    case "effect.update": {
+      const l = getLayer(getComp(p, cmd.compId), cmd.layerId);
+      const fx = l.effects ?? [];
+      const i = fx.findIndex((x) => x.id === cmd.effectId);
+      if (i < 0) throw new CommandError(`Effect not found: ${cmd.effectId}`);
+      const e = fx[i];
+      if (cmd.enabled !== undefined) e.enabled = !!cmd.enabled;
+      if (cmd.gradient !== undefined) {
+        if (e.kind !== "gradientOverlay") throw new CommandError("gradient only applies to gradientOverlay");
+        e.gradient = cmd.gradient === "radial" ? "radial" : "linear";
+      }
+      if (cmd.toIndex !== undefined) {
+        fx.splice(i, 1);
+        fx.splice(Math.max(0, Math.min(fx.length, cmd.toIndex)), 0, e);
+      }
+      return;
+    }
+    case "effect.remove": {
+      const l = getLayer(getComp(p, cmd.compId), cmd.layerId);
+      if (!(l.effects ?? []).some((x) => x.id === cmd.effectId)) throw new CommandError(`Effect not found: ${cmd.effectId}`);
+      l.effects = l.effects!.filter((x) => x.id !== cmd.effectId);
+      return;
+    }
+    case "comp.precompose": {
+      const c = getComp(p, cmd.compId);
+      if (!cmd.layerIds.length) throw new CommandError("Pick at least one layer to precompose");
+      const ids = new Set(cmd.layerIds);
+      for (const id of ids) getLayer(c, id);
+      const moved = c.layers.filter((l) => ids.has(l.id));
+      const firstIdx = c.layers.findIndex((l) => ids.has(l.id));
+      const child = makeComposition({
+        id: cmd.newCompId,
+        name: cmd.name ?? `${moved[0].name} comp`,
+        width: c.width,
+        height: c.height,
+        fps: c.fps,
+        duration: c.duration,
+        background: null,
+      });
+      if (p.compositions.some((x) => x.id === child.id)) throw new CommandError("Composition id exists");
+      child.layers = moved.map((l) => JSON.parse(JSON.stringify(l)) as Layer);
+      // Links that leave the moved set are cut on both sides.
+      for (const l of child.layers) {
+        if (l.parentId && !ids.has(l.parentId)) l.parentId = null;
+        if (l.matte && !ids.has(l.matte.layerId)) l.matte = null;
+      }
+      c.layers = c.layers.filter((l) => !ids.has(l.id));
+      for (const l of c.layers) {
+        if (l.parentId && ids.has(l.parentId)) l.parentId = null;
+        if (l.matte && ids.has(l.matte.layerId)) l.matte = null;
+      }
+      p.compositions.push(child);
+      const pre = makeLayer("precomp", c, { compId: child.id, name: child.name }) as PrecompLayer;
+      if (cmd.newLayerId) pre.id = cmd.newLayerId;
+      c.layers.splice(Math.min(firstIdx, c.layers.length), 0, pre);
+      return { compId: child.id, layerId: pre.id };
     }
     case "asset.add":
       if (p.assets.some((a) => a.id === cmd.asset.id)) throw new CommandError("Asset id exists");

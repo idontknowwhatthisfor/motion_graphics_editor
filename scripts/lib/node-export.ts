@@ -91,7 +91,10 @@ export async function seekAndShoot(page: Page, t: number): Promise<Buffer> {
   return page.locator("#root").screenshot({ omitBackground: true, type: "png" });
 }
 
-export type ExportFormat = "prores4444" | "mp4" | "png";
+export type ExportFormat = "prores4444" | "mp4" | "png" | "webm" | "gif";
+export const EXPORT_FORMATS: ExportFormat[] = ["prores4444", "mp4", "png", "webm", "gif"];
+/** File extension per format; png is a folder of frames. */
+export const EXPORT_EXT: Record<ExportFormat, string> = { prores4444: ".mov", mp4: ".mp4", png: "", webm: ".webm", gif: ".gif" };
 export interface ExportOptions {
   format: ExportFormat;
   out: string;
@@ -109,6 +112,12 @@ export function ffmpegArgs(format: ExportFormat, fps: number, out: string): stri
     return [...input, "-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le", "-alpha_bits", "16", "-vendor", "apl0", "-r", String(fps), out];
   if (format === "mp4")
     return [...input, "-filter_complex", "color=black,format=rgb24[bg];[bg][0:v]scale2ref[bg2][fg];[bg2][fg]overlay=shortest=1:format=auto,format=yuv420p", "-c:v", "libx264", "-crf", "18", "-preset", "medium", "-movflags", "+faststart", "-r", String(fps), out];
+  if (format === "webm")
+    // VP9 with alpha (yuva420p); alt-ref frames must be off for alpha.
+    return [...input, "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "28", "-auto-alt-ref", "0", "-row-mt", "1", "-deadline", "good", "-cpu-used", "4", "-r", String(fps), out];
+  if (format === "gif")
+    // One pass: palettegen buffers the frames, paletteuse keeps 1-bit transparency.
+    return [...input, "-filter_complex", "[0:v]split[a][b];[a]palettegen=reserve_transparent=1:stats_mode=diff[p];[b][p]paletteuse=dither=sierra2_4a:alpha_threshold=128", "-loop", "0", "-r", String(fps), out];
   throw new Error(`No ffmpeg args for ${format}`);
 }
 
@@ -157,7 +166,7 @@ export async function exportDirect(project: Project, projectDir: string, compId:
 /** ffprobe summary used by tests, the engine test and export checks. */
 export async function probe(file: string): Promise<{ codec: string; profile?: string; pixFmt: string; width: number; height: number; frames: number; fps: string; hasAlpha: boolean }> {
   const out = await new Promise<string>((res, rej) => {
-    const p = spawn("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=codec_name,profile,pix_fmt,width,height,nb_read_frames,r_frame_rate", "-of", "json", file]);
+    const p = spawn("ffprobe", ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=codec_name,profile,pix_fmt,width,height,nb_read_frames,r_frame_rate:stream_tags=alpha_mode", "-of", "json", file]);
     let s = "";
     p.stdout.on("data", (d) => (s += d));
     p.on("close", (c) => (c === 0 ? res(s) : rej(new Error("ffprobe failed"))));
@@ -171,6 +180,6 @@ export async function probe(file: string): Promise<{ codec: string; profile?: st
     height: st.height,
     frames: Number(st.nb_read_frames),
     fps: st.r_frame_rate,
-    hasAlpha: /yuva|rgba|argb|bgra|gbrap/.test(st.pix_fmt),
+    hasAlpha: /yuva|rgba|argb|bgra|gbrap|pal8/.test(st.pix_fmt) || st.tags?.alpha_mode === "1" || st.tags?.ALPHA_MODE === "1",
   };
 }

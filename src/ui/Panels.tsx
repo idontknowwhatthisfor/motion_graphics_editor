@@ -186,6 +186,8 @@ function ExportDialog() {
           <select value={format} onChange={(e) => setFormat(e.target.value as ExportRequest["format"])}>
             <option value="prores4444">ProRes 4444 + alpha (.mov)</option>
             <option value="mp4">MP4 H.264 (no alpha, over black)</option>
+            <option value="webm">WebM VP9 + alpha (.webm)</option>
+            <option value="gif">GIF (1-bit transparency)</option>
             <option value="png">PNG sequence (RGBA)</option>
           </select>
         </label>
@@ -287,7 +289,7 @@ function AuditDialog() {
 function ExportApproval() {
   const req = useUI((s) => s.exportRequest)!;
   const comp = activeComp(useProject());
-  const fmt = { prores4444: "ProRes 4444 with alpha (.mov)", mp4: "MP4 H.264", png: "PNG sequence" }[req.format] ?? req.format;
+  const fmt = { prores4444: "ProRes 4444 with alpha (.mov)", mp4: "MP4 H.264", png: "PNG sequence", webm: "WebM with alpha", gif: "GIF" }[req.format] ?? req.format;
   return (
     <Modal title="Claude wants to export" onClose={() => answerExportRequest(false)}>
       <div className="form" data-testid="export-approval">

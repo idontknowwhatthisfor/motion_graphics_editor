@@ -22,6 +22,7 @@ export function parseProject(json: string | unknown): Project {
       l.masks ??= [];
       l.matte ??= null;
       l.parentId ??= null;
+      l.effects ??= [];
     }
   }
   p.assets ??= [];

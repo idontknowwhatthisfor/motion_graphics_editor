@@ -36,13 +36,18 @@ DaVinci Resolve over a coloured clip and check the edges.
 
 - Tools: V select/move, P pen, R rectangle, E ellipse, T text. Space plays,
   arrows step frames, M adds a marker, Cmd+Shift+D splits, Cmd+D duplicates,
-  Cmd+Z / Cmd+Shift+Z undo/redo, Cmd+S saves a version, Cmd+K comp settings.
+  Cmd+Z / Cmd+Shift+Z undo/redo, Cmd+S saves a version, Cmd+K comp settings,
+  Cmd+Shift+C precomposes the selected layers into a nested comp.
+- Inspector › Effects adds blur, glow, drop shadow, colour correction and a
+  gradient overlay; every effect value has a stopwatch. + Layer › Nested comp
+  places another composition as a layer.
 - Click a property's stopwatch to animate it; click a property name in the
   timeline to open its curve in the graph editor.
 - Drag SVG/PNG/JPG onto the window to import. Drop a video to use it as a
   reference layer; it is never exported.
 - Projects autosave to `projects/<name>/`, with versions every 2 minutes.
 - Export › Resolve-ready preset writes ProRes 4444 with alpha to `renders/`.
+  The dialog also offers WebM with alpha, GIF, MP4 and a PNG sequence.
   In Resolve, set Clip Attributes › Alpha Mode to Straight if edges look dark.
 
 ## Let Claude edit the project

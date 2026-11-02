@@ -55,12 +55,23 @@ export function compileToHyperFrames(project: Project, opts: CompileOptions): Co
   const id = opts.htmlCompositionId ?? "main";
   const assetUrl = opts.assetUrl ?? exportedAssetPath;
 
-  // Only what this composition needs; reference video is never exported (ED-17).
-  const usedAssetIds = new Set(comp.layers.filter((l) => l.type === "image").map((l) => (l as { assetId: string }).assetId));
+  // Only what this composition needs (itself plus nested comps); reference
+  // video is never exported (ED-17).
+  const needed: Project["compositions"] = [];
+  const visit = (cid: string) => {
+    const c = project.compositions.find((x) => x.id === cid);
+    if (!c || needed.some((x) => x.id === cid)) return;
+    needed.push({ ...c, layers: c.layers.filter((l) => l.type !== "reference") });
+    for (const l of c.layers) if (l.type === "precomp") visit(l.compId);
+  };
+  visit(comp.id);
+  const usedAssetIds = new Set(
+    needed.flatMap((c) => c.layers.filter((l) => l.type === "image").map((l) => (l as { assetId: string }).assetId)),
+  );
   const assets = project.assets.filter((a) => usedAssetIds.has(a.id));
   const slim: Project = {
     ...project,
-    compositions: [{ ...comp, layers: comp.layers.filter((l) => l.type !== "reference") }],
+    compositions: needed,
     assets: assets.map((a) => ({ ...a, src: assetUrl(a) })),
     activeCompId: comp.id,
   };
