@@ -4,7 +4,7 @@
  * source "claude" so edits land in a reviewable change set.
  */
 import type { Command } from "../core/commands";
-import { serializeProject } from "../core/project-io";
+import { NO_PROJECT_OPEN, serializeProject } from "../core/project-io";
 import { saveProject, startExport } from "./api";
 import { editor, getUI, setUI } from "./state";
 
@@ -36,10 +36,16 @@ function changeSetSummary() {
   return editor.changeSets.map((c) => ({ id: c.id, name: c.name, status: c.status, edits: c.entries.length, layerIds: c.layerIds }));
 }
 
+/** On the Projects screen the editor holds only the unsaved sample, so Claude's edits would be lost. */
+function needOpenProject() {
+  if (getUI().screen !== "editor") throw new Error(NO_PROJECT_OPEN);
+}
+
 const handlers: Record<string, Handler> = {
   getState: () => {
     const ui = getUI();
     return {
+      projectOpen: ui.screen === "editor",
       projectName: ui.projectName,
       project: JSON.parse(serializeProject(editor.project)),
       selection: ui.selection,
@@ -55,12 +61,14 @@ const handlers: Record<string, Handler> = {
     return true;
   },
   dispatch: (p: { commands: Command[]; label?: string }) => {
+    needOpenProject();
     if (getUI().claude.stopped) throw new Error("Stopped by the user. Ask them to press Resume in the Claude panel.");
     const r = editor.dispatch(p.commands, { source: "claude", label: p.label });
     if (!r.ok) throw new Error(r.error ?? "Command failed");
     return { results: r.results, changeSetId: r.changeSetId };
   },
   beginChangeSet: (p: { name: string }) => {
+    needOpenProject();
     if (getUI().claude.stopped) throw new Error("Stopped by the user.");
     if (editor.project.settings.permissionMode === "readOnly") throw new Error("Project is in Read only mode for Claude");
     return { changeSetId: editor.beginChangeSet(p.name).id };
@@ -73,6 +81,7 @@ const handlers: Record<string, Handler> = {
   },
   getChangeSets: () => changeSetSummary(),
   requestExport: async (p: { format: string; fps?: number; width?: number }) => {
+    needOpenProject();
     if (pendingExport) throw new Error("Another export request is waiting for approval");
     setUI({ exportRequest: p });
     const approved = await new Promise<boolean>((res) => (pendingExport = res));

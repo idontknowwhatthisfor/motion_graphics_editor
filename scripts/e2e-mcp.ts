@@ -124,6 +124,14 @@ for (let i = 0; i < 20 && s3.status === "running"; i++) {
 }
 check(s3.status === "cancelled", `cancelling the waiting call cancels the export (${s3.status} at ${s3.done}/${s3.total})`);
 
+// on the Projects screen there is no open project: say so, and refuse edits
+await page.locator(".topbar button", { hasText: "Projects" }).click();
+await page.waitForSelector("[data-testid=home]");
+const none = await data("get_project");
+check(none.projectOpen === false && /No project is open/.test(none.message) && !none.compositions, "get_project says no project is open on the Projects screen");
+const refused = await call("add_layer", { type: "shape" }).then(() => "", (e: Error) => e.message);
+check(/No project is open/.test(refused), "edits are refused while no project is open");
+
 check(errors.length === 0, `no browser errors ${errors.join(" | ")}`);
 rmSync(join(ROOT, "projects/e2e-mcp"), { recursive: true, force: true });
 await client.close();

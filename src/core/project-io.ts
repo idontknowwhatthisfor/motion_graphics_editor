@@ -34,3 +34,7 @@ export function parseProject(json: string | unknown): Project {
 export function serializeProject(p: Project): string {
   return JSON.stringify(p, null, 2);
 }
+
+/** What Claude is told while the editor shows the Projects screen (no project open). */
+export const NO_PROJECT_OPEN =
+  "No project is open: the editor is showing the Projects screen. Ask the user to open a project or create one there, then try again.";

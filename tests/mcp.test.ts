@@ -51,6 +51,17 @@ describe("MCP tools", () => {
     expect((await call("get_project")).project).toBe("q3-dashboard");
   });
 
+  it("says no project is open on the Projects screen, and refuses edits there", async () => {
+    port.projectOpen = false;
+    const p = await call("get_project");
+    expect(p.projectOpen).toBe(false);
+    expect(p.message).toMatch(/No project is open/);
+    expect(p.compositions).toBeUndefined(); // not the unsaved sample the editor holds
+    await expect(call("add_layer", { type: "shape" })).rejects.toThrow(/No project is open/);
+    await expect(call("begin_change_set", { name: "x" })).rejects.toThrow(/No project is open/);
+    expect(editor.project.compositions[0].layers.length).toBe(0);
+  });
+
   it("builds a lower third as one reviewable change set", async () => {
     await call("begin_change_set", { name: "Lower third" });
     const { layerId: bar } = await call("add_layer", { type: "shape", name: "Bar", position: [500, 900], size: [800, 120], color: "#111827" });

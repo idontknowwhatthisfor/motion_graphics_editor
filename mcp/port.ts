@@ -7,9 +7,12 @@ import { existsSync, readFileSync } from "node:fs";
 import WebSocket from "ws";
 import type { Command } from "../src/core/commands";
 import { Editor } from "../src/core/editor";
+import { NO_PROJECT_OPEN } from "../src/core/project-io";
 import type { Project } from "../src/core/types";
 
 export interface EditorState {
+  /** False while the editor shows the Projects screen (older editors omit it: open). */
+  projectOpen?: boolean;
   projectName: string;
   project: Project;
   selection: string[];
@@ -42,12 +45,15 @@ export interface ExportStatus {
 
 /** In-process port for tests and scripts. */
 export class LocalPort implements EditorPort {
+  /** Set false to act like the editor on its Projects screen. */
+  projectOpen = true;
   selection: string[] = [];
   time = 0;
   exportApproved = false;
   constructor(public editor: Editor, public projectName = "test") {}
   async state(): Promise<EditorState> {
     return {
+      projectOpen: this.projectOpen,
       projectName: this.projectName,
       project: this.editor.project,
       selection: this.selection,
@@ -59,11 +65,13 @@ export class LocalPort implements EditorPort {
     };
   }
   async dispatch(commands: Command[], label?: string) {
+    if (!this.projectOpen) throw new Error(NO_PROJECT_OPEN);
     const r = this.editor.dispatch(commands, { source: "claude", label });
     if (!r.ok) throw new Error(r.error);
     return { results: r.results, changeSetId: r.changeSetId };
   }
   async beginChangeSet(name: string) {
+    if (!this.projectOpen) throw new Error(NO_PROJECT_OPEN);
     return { changeSetId: this.editor.beginChangeSet(name).id };
   }
   async finishChangeSet() {
@@ -73,6 +81,7 @@ export class LocalPort implements EditorPort {
   }
   async activity() {}
   async requestExport() {
+    if (!this.projectOpen) throw new Error(NO_PROJECT_OPEN);
     if (!this.exportApproved) throw new Error("The user declined the export");
     return { id: "job_test", out: "/tmp/test.mov" };
   }
