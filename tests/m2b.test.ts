@@ -236,6 +236,29 @@ describe("linked video and sound (layer.linkId)", () => {
     expect(ed.project.compositions[0].layers.map((l) => l.id)).toEqual(copies.map((l) => l.id));
   });
 
+  it("trimming the start cuts the footage and sound instead of sliding them", () => {
+    const { ed, get } = linkedPair();
+    ed.must({ type: "layer.update", layerId: "vid", patch: { inPoint: 3 } });
+    expect([get("vid").mediaOffset, get("aud").inPoint, get("aud").mediaOffset]).toEqual([3, 3, 3]);
+    ed.must({ type: "layer.update", layerId: "vid", patch: { inPoint: 1 } });
+    expect([get("vid").mediaOffset, get("aud").mediaOffset]).toEqual([1, 1]);
+    // The footage has no frames before 0, so the trim stops at its start.
+    ed.must({ type: "layer.update", layerId: "vid", patch: { inPoint: -2 } });
+    expect([get("vid").inPoint, get("vid").mediaOffset, get("aud").inPoint]).toEqual([0, 0, 0]);
+  });
+
+  it("trimming a nested comp's start keeps its animation where it was", () => {
+    const ed = new Editor(makeProject());
+    ed.must({ type: "comp.create", comp: { id: "comp_child" }, activate: false });
+    const pre = (ed.must({ type: "layer.add", layerType: "precomp", opts: { compId: "comp_child" } })[0] as { layerId: string }).layerId;
+    ed.must({ type: "layer.update", layerId: pre, patch: { inPoint: 3.2 } });
+    const offset = () => (comp(ed).layers.find((x) => x.id === pre) as Layer & { timeOffset: number }).timeOffset;
+    expect(offset()).toBeCloseTo(3.2);
+    // Setting the offset in the same patch is a deliberate slip and wins.
+    ed.must({ type: "layer.update", layerId: pre, patch: { inPoint: 4, timeOffset: 0 } });
+    expect(offset()).toBe(0);
+  });
+
   it("unlinked layers move on their own again", () => {
     const { ed, get } = linkedPair();
     ed.must({ type: "layer.update", layerId: "aud", patch: { linkId: null } });

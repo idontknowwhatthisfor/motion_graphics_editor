@@ -419,6 +419,15 @@ export function applyCommand(p: Project, cmd: Command): unknown {
       }
       const before = { inPoint: l.inPoint, outPoint: l.outPoint, mediaOffset: "mediaOffset" in l ? l.mediaOffset : 0 };
       deepMerge(l as unknown as Record<string, unknown>, cmd.patch);
+      // Trimming the start cuts the footage/sound/nested comp instead of sliding it: the
+      // source offset moves with the inPoint (as in layer.split) unless the patch sets the
+      // offset itself. Media cannot start before its first frame, so that trim stops there.
+      const key = sourceOffsetKey(l);
+      const slip = key !== null && "inPoint" in cmd.patch && !(key in cmd.patch);
+      if (slip) {
+        if (key === "mediaOffset") l.inPoint = Math.max(l.inPoint, before.inPoint - before.mediaOffset);
+        (l as unknown as Record<string, number>)[key] += l.inPoint - before.inPoint;
+      }
       if (!(l.inPoint < l.outPoint)) throw new CommandError("inPoint must be before outPoint");
       // Trims and slips carry over to linked layers as the same change.
       for (const id of withLinked(c, [l.id])) {
@@ -427,6 +436,7 @@ export function applyCommand(p: Project, cmd: Command): unknown {
         if ("inPoint" in cmd.patch) o.inPoint += l.inPoint - before.inPoint;
         if ("outPoint" in cmd.patch) o.outPoint += l.outPoint - before.outPoint;
         if ("mediaOffset" in cmd.patch && "mediaOffset" in o && "mediaOffset" in l) o.mediaOffset = Math.max(0, o.mediaOffset + l.mediaOffset - before.mediaOffset);
+        if (slip && "mediaOffset" in o) o.mediaOffset = Math.max(0, o.mediaOffset + l.inPoint - before.inPoint);
         if (!(o.inPoint < o.outPoint)) throw new CommandError(`That trim would leave the linked layer "${o.name}" with no length`);
       }
       return;
