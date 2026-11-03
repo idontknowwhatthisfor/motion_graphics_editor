@@ -46,6 +46,11 @@ describe("MCP tools", () => {
     expect(tools.length).toBeLessThanOrEqual(30);
   });
 
+  it("get_project names the project by its folder, not the name stored in the file", async () => {
+    port.projectName = "q3-dashboard"; // the file itself still says "MCP test"
+    expect((await call("get_project")).project).toBe("q3-dashboard");
+  });
+
   it("builds a lower third as one reviewable change set", async () => {
     await call("begin_change_set", { name: "Lower third" });
     const { layerId: bar } = await call("add_layer", { type: "shape", name: "Bar", position: [500, 900], size: [800, 120], color: "#111827" });
@@ -110,7 +115,7 @@ describe("MCP tools", () => {
     const sheet = (await client.callTool({ name: "render_contact_sheet", arguments: { count: 4 } })) as { content: { type: string }[] };
     expect(sheet.content[0].type).toBe("image");
     const res = await client.readResource({ uri: "mge://project" });
-    expect(JSON.parse((res.contents[0] as { text: string }).text).project).toBe("MCP test");
+    expect(JSON.parse((res.contents[0] as { text: string }).text).project).toBe(port.projectName); // the folder name, as in get_project
     await expect(call("export_start", { format: "prores4444" })).rejects.toThrow(/declined/);
     port.exportApproved = true;
     expect((await call("export_start", { format: "prores4444" })).id).toBe("job_test");

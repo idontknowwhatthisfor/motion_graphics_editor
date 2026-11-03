@@ -44,6 +44,7 @@ const data = async (name: string, args: Record<string, unknown> = {}) => JSON.pa
 
 const proj = await data("get_project");
 check(proj.compositions[0].layers.length === 5, `get_project reads the open editor (${proj.compositions[0].layers.length} layers)`);
+check(proj.project === "e2e-mcp", `get_project names the project by its folder ("${proj.project}")`);
 await page.waitForFunction(() => document.querySelector("[data-testid=claude-status]")?.textContent?.includes("connected") && !document.querySelector("[data-testid=claude-status]")?.textContent?.includes("not"));
 check(true, "editor shows Claude as connected");
 
