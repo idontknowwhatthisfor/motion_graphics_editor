@@ -9,6 +9,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, wr
 import { join } from "node:path";
 import { _electron as electron } from "playwright";
 import { lowerThirdProject } from "../src/core/samples";
+import { makeProject } from "../src/core/factory";
 import { serializeProject } from "../src/core/project-io";
 import { ROOT } from "./lib/node-export";
 
@@ -45,11 +46,13 @@ const layerCount = () => page.locator(".tl-row.layer").count();
 check(await page.evaluate(() => typeof (window as { mgeNative?: unknown }).mgeNative === "object"), "the page sees the native bridge (window.mgeNative)");
 check(await page.evaluate(() => typeof (window as { require?: unknown }).require === "undefined"), "the page has no Node access");
 
-// Start from a clean, named project.
-await page.evaluate(() => (window.confirm = () => true)); // skip the "start a new project?" prompt
-await click("new-project");
-await page.locator(".pname-input").fill("e2e-app");
-await page.locator(".viewer").click({ position: { x: 5, y: 5 } });
+// Start from a clean project in our own folder, so the run never autosaves
+// over or renames one of kp's projects.
+mkdirSync(join(ROOT, "projects/e2e-app"), { recursive: true });
+writeFileSync(join(ROOT, "projects/e2e-app/project.json"), serializeProject(makeProject("e2e-app")));
+await page.evaluate(() => localStorage.setItem("mge:last", "e2e-app"));
+await page.reload();
+await page.waitForFunction(() => (document.querySelector(".pname-input") as HTMLInputElement)?.value === "e2e-app", null, { timeout: 30_000 });
 await page.waitForTimeout(300);
 const title = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle());
 check(title.startsWith("e2e-app"), `window title follows the project ("${title}")`);

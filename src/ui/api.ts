@@ -23,7 +23,7 @@ export async function saveProject(opts: { version?: boolean } = {}): Promise<boo
       body: serializeProject(editor.project),
     });
     if (!r.ok) throw new Error((await r.json()).error);
-    setUI({ saveState: editor.revision === rev ? "saved" : "dirty" });
+    setUI({ saveState: editor.revision === rev ? "saved" : "dirty", diskName: name });
     try {
       localStorage.setItem("mge:last", name);
     } catch {
@@ -46,9 +46,43 @@ export async function openProject(name: string): Promise<boolean> {
   const r = await fetch(`/api/project?name=${encodeURIComponent(name)}`);
   if (!r.ok) return false;
   const p = parseProject(await r.text());
-  setUI({ projectName: name, selection: [], keys: [], time: 0 });
+  setUI({ projectName: name, diskName: name, selection: [], keys: [], time: 0 });
   editor.load(p);
   setUI({ saveState: "saved" });
+  return true;
+}
+
+/**
+ * Rename the open project. When this session has it on disk, its folder
+ * (with assets and versions) is moved; otherwise the next save just goes to
+ * the new name. Names already taken are refused, never overwritten.
+ */
+export async function renameProject(to: string): Promise<boolean> {
+  const from = getUI().projectName;
+  if (!to || to === from) return true;
+  if ((await listProjects()).some((p) => p.name === to)) {
+    toast(`A project named "${to}" already exists`, "error");
+    return false;
+  }
+  // Let a running save finish first, or it would recreate the old folder.
+  while (getUI().saveState === "saving") await new Promise((r) => setTimeout(r, 50));
+  const { diskName, saveState } = getUI();
+  if (diskName === from) {
+    setUI({ saveState: "saving" }); // holds the autosave off during the move
+    const r = await fetch(`/api/rename?name=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`, { method: "POST" }).catch(() => null);
+    if (!r?.ok) {
+      setUI({ saveState });
+      toast(`Rename failed: ${r ? (await r.json()).error : "the project store is offline"}`, "error");
+      return false;
+    }
+    setUI({ projectName: to, diskName: to, saveState });
+  } else setUI({ projectName: to, saveState: "dirty" });
+  try {
+    localStorage.setItem("mge:last", to);
+  } catch {
+    /* private mode */
+  }
+  toast(`Renamed to ${to}`);
   return true;
 }
 

@@ -41,6 +41,8 @@ export interface UIState {
   toast: { text: string; kind: "info" | "error" } | null;
   dialog: null | "comp" | "newComp" | "export" | "versions" | "audit" | "brand" | "template";
   projectName: string;
+  /** The name this session last opened or saved on disk; only that folder is moved by a rename. */
+  diskName: string | null;
   saveState: "saved" | "saving" | "dirty" | "offline";
   showReference: boolean;
   timelineZoom: number; // px per second
@@ -62,6 +64,7 @@ let ui: UIState = {
   toast: null,
   dialog: null,
   projectName: "lower-third",
+  diskName: null,
   saveState: "dirty",
   showReference: true,
   timelineZoom: 120,

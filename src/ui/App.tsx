@@ -1,9 +1,9 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Asset } from "../core/types";
 import { newId } from "../core/id";
 import { compContains } from "../core/commands";
 import { lowerThirdProject } from "../core/samples";
-import { listProjects, saveProject, uploadAsset, openProject } from "./api";
+import { listProjects, saveProject, uploadAsset, openProject, renameProject } from "./api";
 import { startBridge } from "./bridge-client";
 import { Inspector } from "./Inspector";
 import { ClaudePanel, Dialogs } from "./Panels";
@@ -149,6 +149,40 @@ function menuCommand(id: string) {
     default:
       if (id.startsWith("add:")) addLayer(id.slice(4) as "shape");
   }
+}
+
+/**
+ * The project (folder) name. Typing edits a draft; Enter or clicking away
+ * renames once, Esc cancels. Renaming on every keystroke made the autosave
+ * leave a folder for each half-typed name.
+ */
+function ProjectNameField() {
+  const projectName = useUI((s) => s.projectName);
+  const [draft, setDraft] = useState(projectName);
+  const cancelled = useRef(false);
+  useEffect(() => setDraft(projectName), [projectName]);
+  const commit = () => {
+    if (cancelled.current) {
+      cancelled.current = false;
+      return setDraft(projectName);
+    }
+    const to = draft.trim().replace(/^\.+/, "").slice(0, 80);
+    if (!to || to === projectName) return setDraft(projectName);
+    renameProject(to).then((ok) => !ok && setDraft(getUI().projectName));
+  };
+  return (
+    <input
+      className="pname-input"
+      value={draft}
+      title="Project folder name (projects/<name>). Enter to rename, Esc to cancel."
+      onChange={(e) => setDraft(e.target.value.replace(/[^a-zA-Z0-9 _.-]/g, "_"))}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") cancelled.current = true;
+        if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+      }}
+    />
+  );
 }
 
 export function App() {
@@ -332,12 +366,7 @@ export function App() {
     >
       <header className="topbar">
         <strong className="brand">◆ Motion</strong>
-        <input
-          className="pname-input"
-          value={projectName}
-          title="Project folder name (projects/<name>)"
-          onChange={(e) => setUI({ projectName: e.target.value.replace(/[^a-zA-Z0-9 _.-]/g, "_"), saveState: "dirty" })}
-        />
+        <ProjectNameField />
         <button onClick={() => setUI({ dialog: "versions" })}>Open</button>
         <button onClick={() => { if (window.confirm("Start a new empty project? The current one stays saved.")) newBlankProject(); }}>New</button>
         <button onClick={() => { editor.load(lowerThirdProject()); setUI({ projectName: "lower-third-sample" }); }} title="Load the sample lower third">Sample</button>

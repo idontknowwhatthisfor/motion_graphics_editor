@@ -3,10 +3,12 @@
  *   npm run e2e            -> screenshots in renders/e2e/
  * Starts its own Vite dev server on a free port.
  */
-import { mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createServer } from "vite";
 import { launchBrowser, ROOT } from "./lib/node-export";
+import { serializeProject } from "../src/core/project-io";
+import { lowerThirdProject } from "../src/core/samples";
 
 const out = join(ROOT, "renders/e2e");
 mkdirSync(out, { recursive: true });
@@ -24,9 +26,14 @@ const check = (ok: boolean, msg: string) => {
   if (!ok) failed++;
 };
 
-await page.addInitScript(() => localStorage.clear());
+// Work in our own project folder (the sample, saved as e2e-test) so the run
+// never autosaves over or renames one of kp's projects.
+for (const n of ["e2e-test", "e2e-renamed", "e2e-taken"]) rmSync(join(ROOT, "projects", n), { recursive: true, force: true });
+for (const n of ["e2e-test", "e2e-taken"]) await fetch(`${url}api/project?name=${n}`, { method: "PUT", body: serializeProject(lowerThirdProject()) });
+await page.addInitScript(() => (localStorage.clear(), localStorage.setItem("mge:last", "e2e-test")));
 await page.goto(url);
-await page.waitForSelector("[data-testid=viewer] svg [data-layer]");
+await page.waitForFunction(() => (document.querySelector(".pname-input") as HTMLInputElement)?.value === "e2e-test");
+await page.waitForSelector("[data-testid=viewer] svg [data-layer]", { state: "attached" }); // opened at t = 0, where the sample is still transparent
 const layers = await page.locator(".stage [data-layer]").count();
 check(layers >= 4, `sample renders ${layers} layers`);
 await page.screenshot({ path: join(out, "01-start.png") });
@@ -112,14 +119,29 @@ await page.locator(".modal button.primary").click();
 check((await page.locator(".viewer-info").textContent())!.includes("25 fps"), "comp settings change the frame rate");
 
 // save to the local project store
-rmSync(join(ROOT, "projects/e2e-test"), { recursive: true, force: true });
-await page.locator(".pname-input").fill("e2e-test");
-await page.keyboard.press("Escape");
 await page.locator(".viewer").click({ position: { x: 5, y: 5 } });
 await page.keyboard.press("Control+s");
 await page.waitForTimeout(800);
 const saved = await (await fetch(`${url}api/project?name=e2e-test`)).json();
 check(saved.format === "mge-project" && saved.compositions[0].fps === 25, "project saves to projects/e2e-test/project.json");
+
+// rename: typing slower than the 5 s autosave must not create a folder per keystroke
+await page.keyboard.press("Control+k");
+await page.locator(".modal label", { hasText: "Frame rate" }).locator("input").fill("30");
+await page.locator(".modal button.primary").click(); // unsaved change, so the autosave is due
+const nameBox = page.locator(".pname-input");
+await nameBox.fill("");
+await nameBox.pressSequentially("e2e-renamed", { delay: 600 });
+await nameBox.press("Enter");
+await page.waitForTimeout(800);
+const partial = readdirSync(join(ROOT, "projects")).filter((n) => "e2e-renamed".startsWith(n) && n !== "e2e-renamed");
+check(partial.length === 0, `typing a name leaves no half-typed folders${partial.length ? ": " + partial.join(", ") : ""}`);
+check(!existsSync(join(ROOT, "projects/e2e-test")) && existsSync(join(ROOT, "projects/e2e-renamed/versions")), "Enter moves the folder, versions included");
+await nameBox.fill("e2e-taken");
+await nameBox.press("Enter");
+await page.waitForTimeout(500);
+check((await nameBox.inputValue()) === "e2e-renamed" && existsSync(join(ROOT, "projects/e2e-renamed/project.json")), "renaming to a taken name is refused");
+for (const n of ["e2e-renamed", "e2e-taken"]) rmSync(join(ROOT, "projects", n), { recursive: true, force: true });
 
 await page.screenshot({ path: join(out, "03-edited.png") });
 check(errors.length === 0, `no browser errors${errors.length ? ": " + errors.join(" | ") : ""}`);

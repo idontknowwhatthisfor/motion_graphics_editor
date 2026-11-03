@@ -5,10 +5,12 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createServer } from "vite";
 import { launchBrowser, probe, ROOT } from "./lib/node-export";
+import { serializeProject } from "../src/core/project-io";
+import { lowerThirdProject } from "../src/core/samples";
 
 const out = join(ROOT, "renders/e2e");
 mkdirSync(out, { recursive: true });
@@ -22,10 +24,13 @@ const browser = await launchBrowser();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));
-await page.addInitScript(() => localStorage.clear());
+// Our own project folder (the sample, saved as e2e-mcp), so the run never touches kp's projects.
+rmSync(join(ROOT, "projects/e2e-mcp"), { recursive: true, force: true });
+await fetch(`${url}api/project?name=e2e-mcp`, { method: "PUT", body: serializeProject(lowerThirdProject()) });
+await page.addInitScript(() => (localStorage.clear(), localStorage.setItem("mge:last", "e2e-mcp")));
 await page.goto(url);
 await page.waitForSelector("[data-testid=claude-status]");
-await page.locator(".pname-input").fill("e2e-mcp");
+await page.waitForFunction(() => (document.querySelector(".pname-input") as HTMLInputElement)?.value === "e2e-mcp");
 
 const client = new Client({ name: "e2e", version: "0" });
 await client.connect(new StdioClientTransport({ command: process.execPath, args: [join(ROOT, "node_modules/tsx/dist/cli.mjs"), join(ROOT, "mcp/server.ts")], cwd: "/", stderr: "inherit" }));

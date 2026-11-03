@@ -157,6 +157,14 @@ export function createStoreMiddleware(cfg: { root: string; bridgeToken: () => st
         }
         return json(res, 200, { ok: true, savedAt: Date.now() });
       }
+      if (path === "/api/rename" && req.method === "POST") {
+        const target = join(PROJECTS, safeName(url.searchParams.get("to") ?? ""));
+        if (!existsSync(join(dir, "project.json"))) return json(res, 404, { error: "no such project" });
+        // The Mac's disk ignores case, so "Intro" -> "intro" is the same folder and allowed.
+        if (existsSync(target) && target.toLowerCase() !== dir.toLowerCase()) return json(res, 409, { error: "a project with that name already exists" });
+        renameSync(dir, target); // moves project.json, assets/ and versions/ together
+        return json(res, 200, { ok: true });
+      }
       if (path === "/api/versions" && req.method === "GET") {
         const vd = join(dir, "versions");
         const list = existsSync(vd)
