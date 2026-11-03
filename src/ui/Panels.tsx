@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { COMP_PRESETS, FPS_PRESETS } from "../core/factory";
 import type { BrandKit, Project, TemplateField, Vec2 } from "../core/types";
 import { getProp, listProps } from "../core/props";
-import { cancelExport, exportStatus, listLibrary, listProjects, loadBrandKit, newFromTemplate, saveAsTemplate, saveBrandKit, listVersions, loadVersion, openProject, saveProject, startExport, type ExportRequest } from "./api";
+import { cancelExport, exportStatus, listLibrary, loadBrandKit, newFromTemplate, saveAsTemplate, saveBrandKit, listVersions, loadVersion, saveProject, startExport, type ExportRequest } from "./api";
 import { native } from "./native";
 import { answerExportRequest, resumeClaude, stopClaude } from "./bridge-client";
 import { activeComp, editor, findLayer, run, setUI, toast, useEditorRevision, useProject, useUI } from "./state";
@@ -235,22 +235,13 @@ function ExportDialog() {
 
 function VersionsDialog() {
   const [versions, setVersions] = useState<string[] | null>(null);
-  const [projects, setProjects] = useState<{ name: string }[]>([]);
   useEffect(() => {
     listVersions().then(setVersions);
-    listProjects().then(setProjects);
   }, []);
   const close = () => setUI({ dialog: null });
   return (
-    <Modal title="Projects and version history" onClose={close}>
+    <Modal title="Version history" onClose={close}>
       <div className="form">
-        <strong>Open project</strong>
-        <div className="list">
-          {projects.map((p) => (
-            <button key={p.name} onClick={async () => (await openProject(p.name)) && close()}>{p.name}</button>
-          ))}
-          {projects.length === 0 && <span className="muted small">No saved projects yet.</span>}
-        </div>
         <strong>Versions of this project</strong>
         <div className="list">
           {versions?.map((v) => (

@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { Editor, type DispatchOptions } from "../core/editor";
 import type { Command } from "../core/commands";
-import { makeProject } from "../core/factory";
 import { lowerThirdProject } from "../core/samples";
 import type { Composition, Layer, Project } from "../core/types";
 
@@ -40,6 +39,8 @@ export interface UIState {
   previewBefore: string | null;
   toast: { text: string; kind: "info" | "error" } | null;
   dialog: null | "comp" | "newComp" | "export" | "versions" | "audit" | "brand" | "template";
+  /** "home" is the startup project list; nothing is autosaved there. */
+  screen: "home" | "editor";
   projectName: string;
   /** The name this session last opened or saved on disk; only that folder is moved by a rename. */
   diskName: string | null;
@@ -63,9 +64,10 @@ let ui: UIState = {
   previewBefore: null,
   toast: null,
   dialog: null,
-  projectName: "lower-third",
+  screen: "home",
+  projectName: "untitled",
   diskName: null,
-  saveState: "dirty",
+  saveState: "saved",
   showReference: true,
   timelineZoom: 120,
   claude: { agents: 0, bridge: "connecting", action: null, stopped: false },
@@ -113,10 +115,7 @@ export function setTime(t: number) {
   setUI({ time: snapTime(t) });
 }
 
-export function newBlankProject() {
-  editor.load(makeProject("Untitled"));
-  setUI({ selection: [], keys: [], time: 0, projectName: `project-${new Date().toISOString().slice(0, 10)}` });
-}
+
 
 // Prune stale selection after undo/redo/rejects.
 editor.subscribe(() => {

@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from "react";
 import type { Asset } from "../core/types";
 import { newId } from "../core/id";
 import { compContains } from "../core/commands";
-import { lowerThirdProject } from "../core/samples";
-import { listProjects, saveProject, uploadAsset, openProject, renameProject } from "./api";
+import { goHome, openProject, openSample, renameProject, saveProject, uploadAsset } from "./api";
+import { Home } from "./Home";
 import { startBridge } from "./bridge-client";
 import { Inspector } from "./Inspector";
 import { ClaudePanel, Dialogs } from "./Panels";
-import { activeComp, editor, getUI, newBlankProject, run, setTime, setUI, toast, useEditorRevision, useProject, useUI, type Tool } from "./state";
+import { activeComp, editor, getUI, run, setTime, setUI, toast, useEditorRevision, useProject, useUI, type Tool } from "./state";
 import { Timeline } from "./Timeline";
 import { Viewer } from "./Viewer";
 import { native, toFile } from "./native";
@@ -22,6 +22,7 @@ const TOOLS: [Tool, string, string][] = [
 ];
 
 async function importFiles(files: FileList | File[]) {
+  if (getUI().screen !== "editor") return toast("Open or create a project first, then import", "error");
   for (const file of Array.from(files)) {
     const isVideo = /^video\//.test(file.type) || /\.(mp4|mov|webm|m4v)$/i.test(file.name);
     const isAudio = /^audio\//.test(file.type) || /\.(wav|mp3|m4a|aac|aif|aiff)$/i.test(file.name);
@@ -101,15 +102,16 @@ function addLayer(type: "shape" | "text" | "solid" | "null") {
 /** Commands from the Mac app's native menus (ED-26). */
 function menuCommand(id: string) {
   const ui = getUI();
+  // On the project list only the project commands apply.
+  if (ui.screen === "home" && !["new-project", "open-project", "sample", "flush-save"].includes(id)) return;
   switch (id) {
     case "new-project":
-      if (window.confirm("Start a new empty project? The current one stays saved.")) newBlankProject();
-      return;
     case "open-project":
-      return setUI({ dialog: "versions" });
+      return void goHome();
     case "sample":
-      editor.load(lowerThirdProject());
-      return setUI({ projectName: "lower-third-sample" });
+      return void openSample();
+    case "versions":
+      return setUI({ dialog: "versions" });
     case "save-version":
       return void saveProject({ version: true }).then((ok) => ok && toast("Saved"));
     case "flush-save":
@@ -196,20 +198,10 @@ export function App() {
   const projectName = useUI((s) => s.projectName);
   const showReference = useUI((s) => s.showReference);
   const selection = useUI((s) => s.selection);
+  const screen = useUI((s) => s.screen);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  // Open the last project on start, else keep the sample.
   useEffect(() => {
-    let last: string | null = null;
-    try {
-      last = localStorage.getItem("mge:last");
-    } catch {
-      /* ignore */
-    }
-    if (last)
-      listProjects()
-        .then((list) => list.some((p) => p.name === last) && openProject(last!))
-        .catch(() => undefined);
     startBridge();
     if (!native) return;
     const offs = [
@@ -225,8 +217,8 @@ export function App() {
 
   // Mac app: window title, the "edited" dot, and which menu items are enabled.
   useEffect(() => {
-    native?.setTitle(`${projectName} — ${comp.name}`, saveState !== "saved");
-  }, [projectName, comp.name, saveState]);
+    native?.setTitle(screen === "home" ? "Projects" : `${projectName} — ${comp.name}`, screen !== "home" && saveState !== "saved");
+  }, [screen, projectName, comp.name, saveState]);
   useEffect(() => {
     native?.setMenuState({ canUndo: editor.canUndo, canRedo: editor.canRedo, hasSelection: selection.length > 0 });
   });
@@ -279,6 +271,7 @@ export function App() {
   // Keyboard shortcuts.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (getUI().screen !== "editor") return;
       const tag = (e.target as HTMLElement).tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       const mod = e.metaKey || e.ctrlKey;
@@ -355,6 +348,14 @@ export function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  if (screen === "home")
+    return (
+      <>
+        <Home />
+        {toastMsg && <div className={`toast ${toastMsg.kind}`}>{toastMsg.text}</div>}
+      </>
+    );
+
   return (
     <div
       className="app"
@@ -367,9 +368,8 @@ export function App() {
       <header className="topbar">
         <strong className="brand">◆ Motion</strong>
         <ProjectNameField />
-        <button onClick={() => setUI({ dialog: "versions" })}>Open</button>
-        <button onClick={() => { if (window.confirm("Start a new empty project? The current one stays saved.")) newBlankProject(); }}>New</button>
-        <button onClick={() => { editor.load(lowerThirdProject()); setUI({ projectName: "lower-third-sample" }); }} title="Load the sample lower third">Sample</button>
+        <button onClick={() => goHome()} title="All projects (saves this one first)">Projects</button>
+        <button onClick={() => setUI({ dialog: "versions" })} title="Version history of this project">Versions</button>
         <span className="sep" />
         <select value={comp.id} onChange={(e) => run({ type: "comp.setActive", compId: e.target.value })} title="Composition">
           {project.compositions.map((c) => (

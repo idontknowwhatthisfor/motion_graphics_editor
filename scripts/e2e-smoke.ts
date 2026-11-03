@@ -30,8 +30,25 @@ const check = (ok: boolean, msg: string) => {
 // never autosaves over or renames one of kp's projects.
 for (const n of ["e2e-test", "e2e-renamed", "e2e-taken"]) rmSync(join(ROOT, "projects", n), { recursive: true, force: true });
 for (const n of ["e2e-test", "e2e-taken"]) await fetch(`${url}api/project?name=${n}`, { method: "PUT", body: serializeProject(lowerThirdProject()) });
-await page.addInitScript(() => (localStorage.clear(), localStorage.setItem("mge:last", "e2e-test")));
+await page.addInitScript(() => localStorage.clear());
+const listed = async () => (await (await fetch(`${url}api/projects`)).json()) as { name: string; modified: number }[];
+const atStart = await listed();
 await page.goto(url);
+
+// startup: the project list, and nothing saved until a project is chosen
+await page.waitForSelector("[data-testid=home] .card[data-project=e2e-test] .thumb-svg svg");
+check((await page.locator(".app").count()) === 0, "the app starts on the project list, not in the editor");
+check((await page.locator(".card[data-project=e2e-test] .thumb-svg [data-layer]").count()) >= 4, "project cards show a rendered thumbnail");
+await page.waitForTimeout(6000); // longer than the 5 s autosave
+check(JSON.stringify(await listed()) === JSON.stringify(atStart), "waiting on the project list saves nothing");
+await page.locator(".home-search").fill("e2e-tak");
+check((await page.locator(".card").count()) === 1, "search filters the project list");
+await page.locator(".home-search").fill("");
+await page.locator(".home-new-name").fill("e2e-taken");
+await page.locator(".home-new button.primary").click();
+await page.waitForTimeout(500);
+check((await page.locator("[data-testid=home]").count()) === 1, "New project refuses a name that is taken");
+await page.locator(".card[data-project=e2e-test]").click();
 await page.waitForFunction(() => (document.querySelector(".pname-input") as HTMLInputElement)?.value === "e2e-test");
 await page.waitForSelector("[data-testid=viewer] svg [data-layer]", { state: "attached" }); // opened at t = 0, where the sample is still transparent
 const layers = await page.locator(".stage [data-layer]").count();
@@ -141,6 +158,12 @@ await nameBox.fill("e2e-taken");
 await nameBox.press("Enter");
 await page.waitForTimeout(500);
 check((await nameBox.inputValue()) === "e2e-renamed" && existsSync(join(ROOT, "projects/e2e-renamed/project.json")), "renaming to a taken name is refused");
+
+// Projects returns to the list, which now leads with this project
+await page.locator(".topbar button", { hasText: "Projects" }).click();
+await page.waitForSelector("[data-testid=home] .card");
+check((await page.locator(".card").first().getAttribute("data-project")) === "e2e-renamed" && (await page.locator(".card .badge").count()) === 1,
+  "Projects goes back to the list with this project first, marked Last opened");
 for (const n of ["e2e-renamed", "e2e-taken"]) rmSync(join(ROOT, "projects", n), { recursive: true, force: true });
 
 await page.screenshot({ path: join(out, "03-edited.png") });

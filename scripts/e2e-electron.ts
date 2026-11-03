@@ -38,7 +38,7 @@ const errors: string[] = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 page.on("console", (m) => m.type() === "error" && !m.text().startsWith("Failed to load resource") && errors.push(m.text()));
 page.on("response", (r) => r.status() >= 400 && errors.push(`${r.status()} ${r.url()}`));
-await page.waitForSelector("[data-testid=viewer] svg", { timeout: 30_000 });
+await page.waitForSelector("[data-testid=home]", { timeout: 30_000 }); // starts on the project list
 
 const click = (id: string) => app.evaluate(({ Menu }, id) => Menu.getApplicationMenu()!.getMenuItemById(id)!.click(), id);
 const layerCount = () => page.locator(".tl-row.layer").count();
@@ -50,8 +50,8 @@ check(await page.evaluate(() => typeof (window as { require?: unknown }).require
 // over or renames one of kp's projects.
 mkdirSync(join(ROOT, "projects/e2e-app"), { recursive: true });
 writeFileSync(join(ROOT, "projects/e2e-app/project.json"), serializeProject(makeProject("e2e-app")));
-await page.evaluate(() => localStorage.setItem("mge:last", "e2e-app"));
-await page.reload();
+await page.reload(); // the project list now includes it
+await page.locator(".card[data-project=e2e-app]").click({ timeout: 30_000 });
 await page.waitForFunction(() => (document.querySelector(".pname-input") as HTMLInputElement)?.value === "e2e-app", null, { timeout: 30_000 });
 await page.waitForTimeout(300);
 const title = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getTitle());

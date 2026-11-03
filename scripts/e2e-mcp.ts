@@ -27,8 +27,9 @@ page.on("pageerror", (e) => errors.push(String(e)));
 // Our own project folder (the sample, saved as e2e-mcp), so the run never touches kp's projects.
 rmSync(join(ROOT, "projects/e2e-mcp"), { recursive: true, force: true });
 await fetch(`${url}api/project?name=e2e-mcp`, { method: "PUT", body: serializeProject(lowerThirdProject()) });
-await page.addInitScript(() => (localStorage.clear(), localStorage.setItem("mge:last", "e2e-mcp")));
+await page.addInitScript(() => localStorage.clear());
 await page.goto(url);
+await page.locator(".card[data-project=e2e-mcp]").click();
 await page.waitForSelector("[data-testid=claude-status]");
 await page.waitForFunction(() => (document.querySelector(".pname-input") as HTMLInputElement)?.value === "e2e-mcp");
 
@@ -123,6 +124,7 @@ for (let i = 0; i < 20 && s3.status === "running"; i++) {
 check(s3.status === "cancelled", `cancelling the waiting call cancels the export (${s3.status} at ${s3.done}/${s3.total})`);
 
 check(errors.length === 0, `no browser errors ${errors.join(" | ")}`);
+rmSync(join(ROOT, "projects/e2e-mcp"), { recursive: true, force: true });
 await client.close();
 await browser.close();
 await vite.close();

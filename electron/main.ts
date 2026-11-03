@@ -161,15 +161,15 @@ function buildMenu() {
     {
       label: "File",
       submenu: [
-        item("New Project", "new-project", "CmdOrCtrl+Alt+N"),
-        item("Open Project…", "open-project", "CmdOrCtrl+O"),
+        item("New Project…", "new-project", "CmdOrCtrl+Alt+N"),
+        item("Projects…", "open-project", "CmdOrCtrl+O"),
         { label: "Open Project File…", accelerator: "CmdOrCtrl+Shift+O", click: () => pickProjectFile() },
         item("Open Sample", "sample"),
         item("New from Template…", "template"),
         item("Brand Kit…", "brand"),
         { type: "separator" },
         item("Save Version", "save-version", "CmdOrCtrl+S"),
-        item("Version History…", "open-project"),
+        item("Version History…", "versions"),
         { type: "separator" },
         { label: "Import…", accelerator: "CmdOrCtrl+I", click: () => pickImport() },
         item("Export…", "export", "CmdOrCtrl+M"),
