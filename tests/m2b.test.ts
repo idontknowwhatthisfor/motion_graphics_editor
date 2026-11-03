@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Editor, checkExpression, evaluateComposition, makeProject, offsetPathD, type ShapeLayer, type Vec2 } from "../src/core";
+import { Editor, checkExpression, evaluateComposition, makeProject, offsetPathD, type Layer, type ShapeLayer, type Vec2 } from "../src/core";
 import { sceneToVNodes } from "../src/render/renderer";
 
 const add = (ed: Editor, layerType: any, opts: any = {}) =>
@@ -180,5 +180,66 @@ describe("audio analysis (ED-14)", () => {
     const peaks = waveformPeaks(s, 100);
     expect(peaks.length).toBe(100);
     expect(Math.max(...peaks)).toBeGreaterThan(0.5);
+  });
+});
+
+describe("linked video and sound (layer.linkId)", () => {
+  // A video layer and its sound, as an import of a video with audio creates them.
+  const linkedPair = () => {
+    const ed = new Editor(makeProject());
+    const asset = { id: "asset_v", name: "clip.mp4", kind: "video" as const, src: "assets/clip.mp4", width: 1920, height: 1080, duration: 20 };
+    ed.must([
+      { type: "asset.add", asset },
+      { type: "layer.add", layerType: "video", opts: { id: "vid", assetId: "asset_v", outPoint: 10 } as never },
+      { type: "layer.add", layerType: "audio", opts: { id: "aud", assetId: "asset_v", outPoint: 10 } as never },
+      { type: "layer.update", layerId: "vid", patch: { linkId: "link_1" } },
+      { type: "layer.update", layerId: "aud", patch: { linkId: "link_1" } },
+    ]);
+    const get = (id: string) => ed.project.compositions[0].layers.find((l) => l.id === id) as Layer & { mediaOffset: number };
+    return { ed, get };
+  };
+
+  it("moving or trimming one moves or trims the other", () => {
+    const { ed, get } = linkedPair();
+    ed.must({ type: "layer.shiftTime", layerIds: ["aud"], delta: 2 });
+    expect([get("vid").inPoint, get("vid").outPoint]).toEqual([2, 12]);
+    ed.must({ type: "layer.update", layerId: "vid", patch: { outPoint: 9 } });
+    expect(get("aud").outPoint).toBe(9);
+    ed.must({ type: "layer.update", layerId: "vid", patch: { mediaOffset: 1.5 } });
+    expect(get("aud").mediaOffset).toBe(1.5);
+    ed.undo();
+    expect(get("aud").mediaOffset).toBe(0); // one undo step for both
+  });
+
+  it("split cuts both, and the second halves continue the footage and sound", () => {
+    const { ed, get } = linkedPair();
+    const [{ layerId: v2 }] = ed.must({ type: "layer.split", layerId: "vid", t: 4 }) as { layerId: string }[];
+    const layers = ed.project.compositions[0].layers;
+    expect(layers.length).toBe(4);
+    const a2 = layers.find((l) => l.type === "audio" && l.id !== "aud")!.id;
+    expect([get("vid").outPoint, get("aud").outPoint]).toEqual([4, 4]);
+    expect([get(v2).inPoint, get(v2).mediaOffset, get(a2).mediaOffset]).toEqual([4, 4, 4]);
+    expect(get(v2).linkId).toBe(get(a2).linkId);
+    expect(get(v2).linkId).not.toBe("link_1"); // the halves are separate pairs
+    ed.must({ type: "layer.shiftTime", layerIds: [v2], delta: 1 });
+    expect([get("vid").inPoint, get(a2).inPoint]).toEqual([0, 5]);
+  });
+
+  it("delete removes both; duplicate copies both as a new pair", () => {
+    const { ed, get } = linkedPair();
+    const [{ layerId: v2 }] = ed.must({ type: "layer.duplicate", layerId: "vid" }) as { layerId: string }[];
+    const copies = ed.project.compositions[0].layers.filter((l) => l.id !== "vid" && l.id !== "aud");
+    expect(copies.map((l) => l.type).sort()).toEqual(["audio", "video"]);
+    expect(copies[0].linkId).toBe(copies[1].linkId);
+    expect(get(v2).linkId).not.toBe("link_1");
+    ed.must({ type: "layer.delete", layerIds: ["aud"] });
+    expect(ed.project.compositions[0].layers.map((l) => l.id)).toEqual(copies.map((l) => l.id));
+  });
+
+  it("unlinked layers move on their own again", () => {
+    const { ed, get } = linkedPair();
+    ed.must({ type: "layer.update", layerId: "aud", patch: { linkId: null } });
+    ed.must({ type: "layer.shiftTime", layerIds: ["vid"], delta: 3 });
+    expect([get("vid").inPoint, get("aud").inPoint]).toEqual([3, 0]);
   });
 });

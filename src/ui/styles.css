@@ -125,6 +125,9 @@ textarea { width: 100%; resize: vertical; }
 .tl-row.layer.sel .tl-name { background-color: var(--sel); }
 .tl-row.prop .tl-name { padding-left: 34px; background-color: #1a1d23; }
 .tl-name button { background: none; border: none; padding: 0 2px; }
+.tl-name button.link { display: inline-flex; align-items: center; color: #4b5563; }
+.tl-name button.link:hover { color: var(--muted); }
+.tl-name button.link.on { color: var(--accent2); }
 .twisty { width: 14px; }
 .idx { color: var(--muted); width: 16px; text-align: right; }
 .ltype { font-size: 10px; width: 16px; height: 16px; line-height: 16px; text-align: center; border-radius: 3px; background: #374151; }

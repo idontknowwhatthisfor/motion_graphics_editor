@@ -106,6 +106,8 @@ export function summarizeProject(s: EditorState) {
         outPoint: l.outPoint,
         ...(l.visible ? {} : { visible: false }),
         ...(l.matte ? { matte: l.matte } : {}),
+        // Layers sharing a linkId (a video and its sound) move, trim, split and delete together.
+        ...(l.linkId ? { linkId: l.linkId } : {}),
         ...(l.blendMode !== "normal" ? { blendMode: l.blendMode } : {}),
         ...(l.type === "text" ? { text: l.text } : {}),
         animated: listProps(l)

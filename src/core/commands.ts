@@ -176,6 +176,7 @@ const PATCHABLE_LAYER_KEYS = new Set([
   "timeOffset",
   "repeater",
   "offsetPath",
+  "linkId",
 ]);
 
 /**
@@ -252,6 +253,18 @@ function animatorPreset(preset: string, id?: string): TextAnimator {
     base.props.scale = prop<Vec2>([0, 0]);
   }
   return base;
+}
+
+/** The layers in `ids` plus every layer linked to one of them (see Layer.linkId), in comp order. */
+function withLinked(c: Composition, ids: Iterable<string>): string[] {
+  const want = new Set(ids);
+  const links = new Set(c.layers.filter((l) => want.has(l.id) && l.linkId).map((l) => l.linkId));
+  return c.layers.filter((l) => want.has(l.id) || (l.linkId && links.has(l.linkId))).map((l) => l.id);
+}
+
+/** Media layers and nested comps play their source from mediaOffset / timeOffset at their inPoint. */
+function sourceOffsetKey(l: Layer): "mediaOffset" | "timeOffset" | null {
+  return l.type === "video" || l.type === "audio" || l.type === "reference" ? "mediaOffset" : l.type === "precomp" ? "timeOffset" : null;
 }
 
 // ---------- the reducer ----------
@@ -371,8 +384,8 @@ export function applyCommand(p: Project, cmd: Command): unknown {
     }
     case "layer.delete": {
       const c = getComp(p, cmd.compId);
-      const ids = new Set(cmd.layerIds);
-      for (const id of ids) getLayer(c, id);
+      for (const id of cmd.layerIds) getLayer(c, id);
+      const ids = new Set(withLinked(c, cmd.layerIds));
       c.layers = c.layers.filter((l) => !ids.has(l.id));
       for (const l of c.layers) {
         if (l.parentId && ids.has(l.parentId)) l.parentId = null;
@@ -404,8 +417,18 @@ export function applyCommand(p: Project, cmd: Command): unknown {
         getLayer(c, m.layerId);
         if (m.layerId === l.id) throw new CommandError("A layer cannot be its own matte");
       }
+      const before = { inPoint: l.inPoint, outPoint: l.outPoint, mediaOffset: "mediaOffset" in l ? l.mediaOffset : 0 };
       deepMerge(l as unknown as Record<string, unknown>, cmd.patch);
       if (!(l.inPoint < l.outPoint)) throw new CommandError("inPoint must be before outPoint");
+      // Trims and slips carry over to linked layers as the same change.
+      for (const id of withLinked(c, [l.id])) {
+        const o = getLayer(c, id);
+        if (o === l) continue;
+        if ("inPoint" in cmd.patch) o.inPoint += l.inPoint - before.inPoint;
+        if ("outPoint" in cmd.patch) o.outPoint += l.outPoint - before.outPoint;
+        if ("mediaOffset" in cmd.patch && "mediaOffset" in o && "mediaOffset" in l) o.mediaOffset = Math.max(0, o.mediaOffset + l.mediaOffset - before.mediaOffset);
+        if (!(o.inPoint < o.outPoint)) throw new CommandError(`That trim would leave the linked layer "${o.name}" with no length`);
+      }
       return;
     }
     case "layer.reorder": {
@@ -418,32 +441,50 @@ export function applyCommand(p: Project, cmd: Command): unknown {
     }
     case "layer.duplicate": {
       const c = getComp(p, cmd.compId);
-      const i = c.layers.findIndex((l) => l.id === cmd.layerId);
-      if (i < 0) throw new CommandError(`Layer not found: ${cmd.layerId}`);
-      const copy = cloneWithNewIds(c.layers[i]);
-      copy.id = cmd.newId ?? newId("layer");
-      copy.name = `${c.layers[i].name} copy`;
-      c.layers.splice(i, 0, copy);
-      return { layerId: copy.id };
+      getLayer(c, cmd.layerId);
+      // A linked group is duplicated as a group, linked to itself but not to the original.
+      const link = c.layers.find((l) => l.id === cmd.layerId)!.linkId ? newId("link") : undefined;
+      let result = "";
+      for (const id of withLinked(c, [cmd.layerId])) {
+        const i = c.layers.findIndex((l) => l.id === id);
+        const copy = cloneWithNewIds(c.layers[i]);
+        copy.id = id === cmd.layerId ? (cmd.newId ?? newId("layer")) : newId("layer");
+        copy.name = `${c.layers[i].name} copy`;
+        if (link) copy.linkId = link;
+        c.layers.splice(i, 0, copy);
+        if (id === cmd.layerId) result = copy.id;
+      }
+      return { layerId: result };
     }
     case "layer.split": {
       const c = getComp(p, cmd.compId);
-      const i = c.layers.findIndex((l) => l.id === cmd.layerId);
-      if (i < 0) throw new CommandError(`Layer not found: ${cmd.layerId}`);
-      const l = c.layers[i];
+      const l = getLayer(c, cmd.layerId);
       const t = finite(cmd.t, "t");
       if (!(t > l.inPoint && t < l.outPoint)) throw new CommandError("Split time must be inside the layer");
-      const copy = cloneWithNewIds(l);
-      copy.id = cmd.newId ?? newId("layer");
-      copy.inPoint = t;
-      l.outPoint = t;
-      c.layers.splice(i, 0, copy);
-      return { layerId: copy.id };
+      const link = l.linkId ? newId("link") : undefined;
+      let result = "";
+      for (const id of withLinked(c, [l.id])) {
+        const j = c.layers.findIndex((x) => x.id === id);
+        const src = c.layers[j];
+        if (!(t > src.inPoint && t < src.outPoint)) continue; // a linked layer that ends earlier is left alone
+        const copy = cloneWithNewIds(src);
+        copy.id = id === l.id ? (cmd.newId ?? newId("layer")) : newId("layer");
+        copy.inPoint = t;
+        // The second half continues the footage/sound/nested comp where the first stops.
+        const key = sourceOffsetKey(copy);
+        if (key) (copy as unknown as Record<string, number>)[key] += t - src.inPoint;
+        if (link) copy.linkId = link;
+        src.outPoint = t;
+        c.layers.splice(j, 0, copy);
+        if (id === l.id) result = copy.id;
+      }
+      return { layerId: result };
     }
     case "layer.shiftTime": {
       const c = getComp(p, cmd.compId);
       const d = finite(cmd.delta, "delta");
-      for (const id of cmd.layerIds) {
+      for (const id of cmd.layerIds) getLayer(c, id);
+      for (const id of withLinked(c, cmd.layerIds)) {
         const l = getLayer(c, id);
         l.inPoint += d;
         l.outPoint += d;

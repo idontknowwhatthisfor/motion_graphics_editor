@@ -1,3 +1,7 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Editor, evaluateComposition, makeProject, parseProject, serializeProject, type Vec2 } from "../src/core";
 import { compileToHyperFrames } from "../src/compiler/hyperframes";
@@ -166,5 +170,31 @@ describe("video and audio layers (ED-14, ED-23)", () => {
     expect(args).toContain("volume=0.800");
     expect(args).toContain("pcm_s24le");
     expect(() => ed.must({ type: "layer.add", layerType: "audio", opts: { assetId: "nope" } })).toThrow(/Asset not found/);
+  });
+
+  // Runs FFmpeg for real: a split video's two sound halves start at different times.
+  it.skipIf(spawnSync("ffmpeg", ["-version"]).status !== 0)("audio layers starting at different times keep their place in the mix", async () => {
+    const { muxArgs } = await import("../scripts/lib/node-export");
+    const dir = mkdtempSync(join(tmpdir(), "mge-mix-"));
+    const f = (n: string) => join(dir, n);
+    const ff = (...a: string[]) => expect(spawnSync("ffmpeg", ["-v", "error", "-y", ...a]).status).toBe(0);
+    ff("-f", "lavfi", "-i", "color=black:s=64x64:d=4:r=10", "-c:v", "libx264", "-pix_fmt", "yuv420p", f("v.mp4"));
+    ff("-f", "lavfi", "-i", "sine=frequency=440:duration=4", f("tone.wav"));
+    // second half (starts at 2.5 s) listed first, as a split puts it above the first half
+    const halves = [
+      { file: f("tone.wav"), start: 2.5, offset: 1.5, duration: 1.5, volume: 1 },
+      { file: f("tone.wav"), start: 1, offset: 0, duration: 1.5, volume: 1 },
+    ];
+    expect(spawnSync("ffmpeg", muxArgs(f("v.mp4"), halves, 4, "mp4", f("out.mp4"))).status).toBe(0);
+    const loud = (from: number) => {
+      const r = spawnSync("ffmpeg", ["-hide_banner", "-ss", String(from), "-t", "0.4", "-i", f("out.mp4"), "-vn", "-af", "volumedetect", "-f", "null", "-"], { encoding: "utf8" });
+      return Number(/mean_volume: (-?[\d.]+)/.exec(r.stderr)?.[1] ?? -999);
+    };
+    const audioStart = spawnSync("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=start_time", "-of", "csv=p=0", f("out.mp4")], { encoding: "utf8" }).stdout.trim();
+    expect(Number(audioStart)).toBeLessThan(0.1);
+    expect(loud(0.3)).toBeLessThan(-60); // silent before the first half
+    expect(loud(1.3)).toBeGreaterThan(-30); // first half
+    expect(loud(3.0)).toBeGreaterThan(-30); // second half
+    rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -264,6 +264,11 @@ interface LayerCommon {
   effects?: Effect[];
   /** UI colour label. */
   label?: string;
+  /**
+   * Layers sharing a linkId (a video and its sound) are edited together:
+   * moved, trimmed, split, duplicated and deleted as one. Null/absent = unlinked.
+   */
+  linkId?: string | null;
 }
 
 export interface SolidLayer extends LayerCommon {

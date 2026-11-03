@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Asset } from "../core/types";
+import type { MakeLayerOpts } from "../core/factory";
 import { newId } from "../core/id";
 import { compContains } from "../core/commands";
 import { goHome, openProject, openSample, renameProject, saveProject, uploadAsset } from "./api";
@@ -48,11 +49,14 @@ async function importFiles(files: FileList | File[]) {
         }
       });
       URL.revokeObjectURL(url);
-      const src = await uploadAsset(file);
+      const { src, hasAudio } = await uploadAsset(file);
       const kind: Asset["kind"] = isVideo ? "video" : isAudio ? "audio" : file.name.toLowerCase().endsWith(".svg") ? "svg" : "image";
       const asset: Asset = { id: newId("asset"), name: file.name, kind, src, width: dims.w, height: dims.h, ...(dims.d && Number.isFinite(dims.d) ? { duration: dims.d } : {}) };
       const comp = activeComp();
       const outPoint = dims.d && Number.isFinite(dims.d) && (isVideo || isAudio) ? Math.min(comp.duration, dims.d) : comp.duration;
+      // A video with sound also gets an audio layer that plays the same file, linked so they stay in sync.
+      const withSound = isVideo && hasAudio === true;
+      const ids = { main: newId("layer"), sound: newId("layer"), link: newId("link") };
       const r = run(
         [
           { type: "asset.add", asset },
@@ -60,8 +64,15 @@ async function importFiles(files: FileList | File[]) {
             type: "layer.add",
             layerType: isVideo ? "video" : isAudio ? "audio" : "image",
             index: isVideo || isAudio ? comp.layers.length : 0,
-            opts: { name: file.name, assetId: asset.id, width: dims.w, height: dims.h, position: [comp.width / 2, comp.height / 2], outPoint },
+            opts: { id: ids.main, name: file.name, assetId: asset.id, width: dims.w, height: dims.h, position: [comp.width / 2, comp.height / 2], outPoint } as MakeLayerOpts,
           },
+          ...(withSound
+            ? ([
+                { type: "layer.add", layerType: "audio", index: comp.layers.length + 1, opts: { id: ids.sound, name: `${file.name} (sound)`, assetId: asset.id, outPoint } as MakeLayerOpts },
+                { type: "layer.update", layerId: ids.main, patch: { linkId: ids.link } },
+                { type: "layer.update", layerId: ids.sound, patch: { linkId: ids.link } },
+              ] as const)
+            : []),
         ],
         { label: `Import ${file.name}` },
       );
@@ -71,7 +82,8 @@ async function importFiles(files: FileList | File[]) {
           const s = Math.min(comp.width / dims.w, comp.height / dims.h) * 100;
           run({ type: "prop.set", layerId: id, path: "transform.scale", value: [s, s] }, { coalesceKey: `imp-${id}` });
         }
-        if (isVideo) toast("Video added. It is exported; switch it to Reference in the Inspector to keep it out of exports.");
+        if (withSound) toast("Video and its sound added as linked layers. Unlink them with the link icon in the timeline.");
+        else if (isVideo) toast("Video added. It is exported; switch it to Reference in the Inspector to keep it out of exports.");
         if (isAudio) toast("Audio added. Select it and use Detect beats to drop beat markers.");
         setUI({ selection: [id] });
       }

@@ -1,11 +1,12 @@
 import { useLayoutEffect, useRef } from "react";
 import { easeName } from "../core/easing";
 import { isAnimated, valueAt } from "../core/interpolate";
+import { newId } from "../core/id";
 import { getProp, listProps } from "../core/props";
 import type { AudioLayer, Composition, Layer, Prop } from "../core/types";
 import { usePeaks } from "./audio";
 import { GraphEditor } from "./GraphEditor";
-import { activeComp, getUI, run, setTime, setUI, snapTime, useProject, useUI, type KeySel } from "./state";
+import { activeComp, getUI, run, setTime, setUI, snapTime, toast, useProject, useUI, type KeySel } from "./state";
 
 const NAME_W = 280;
 const ROW_H = 24;
@@ -35,9 +36,44 @@ export function rowsFor(layer: Layer): string[] {
   return rows;
 }
 
+/** A chain-link icon: grey when unlinked, blue when linked (see Layer.linkId). */
+function LinkIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.5 1.5" />
+      <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.5-1.5" />
+    </svg>
+  );
+}
+
+/** Linked: click to unlink. Unlinked: click to link this layer with the other selected layers. */
+function LinkButton({ layer, linked }: { layer: Layer; linked: Layer[] }) {
+  const on = linked.length > 0;
+  const link = () => {
+    const others = getUI().selection.filter((id) => id !== layer.id);
+    if (!others.length) return toast("Shift-click the layers to link with this one, then click its link icon");
+    const linkId = newId("link");
+    run([layer.id, ...others].map((id) => ({ type: "layer.update" as const, layerId: id, patch: { linkId } })), { label: "Link layers" });
+  };
+  const unlink = () => run([layer, ...linked].map((l) => ({ type: "layer.update" as const, layerId: l.id, patch: { linkId: null } })), { label: "Unlink layers" });
+  return (
+    <button
+      className={`icon link${on ? " on" : ""}`}
+      aria-pressed={on}
+      title={on ? `Linked to ${linked.map((l) => l.name).join(", ")}: moved, trimmed, split and deleted together. Click to unlink.` : "Not linked. Shift-click other layers, then click here to link them with this one."}
+      onPointerDown={(e) => e.stopPropagation()} // keep the selection to link with
+      onClick={on ? unlink : link}
+    >
+      <LinkIcon />
+    </button>
+  );
+}
+
 function snapCandidates(comp: Composition, exclude?: string): number[] {
   const c = [0, comp.duration, getUI().time, ...comp.markers.map((m) => m.t)];
-  for (const l of comp.layers) if (l.id !== exclude) c.push(l.inPoint, l.outPoint);
+  // Linked layers move with the dragged one, so their edges are not targets.
+  const link = comp.layers.find((l) => l.id === exclude)?.linkId;
+  for (const l of comp.layers) if (l.id !== exclude && !(link && l.linkId === link)) c.push(l.inPoint, l.outPoint);
   return c;
 }
 function snap(t: number, comp: Composition, zoom: number, exclude?: string, enabled = true): number {
@@ -198,12 +234,14 @@ export function Timeline() {
   comp.layers.forEach((layer, index) => {
     const sel = selection.includes(layer.id);
     const open = !!expanded[layer.id];
+    const linked = layer.linkId ? comp.layers.filter((l) => l.linkId === layer.linkId && l.id !== layer.id) : [];
     rows.push(
       <div key={layer.id} className={`tl-row layer ${sel ? "sel" : ""} ${layer.visible ? "" : "hidden"}`} style={{ height: ROW_H }}>
         <div className="tl-name" style={{ width: NAME_W }} onPointerDown={(e) => setUI({ selection: e.shiftKey ? [...new Set([...selection, layer.id])] : [layer.id] })}>
           <button className="twisty" onClick={() => setUI({ expanded: { ...expanded, [layer.id]: !open } })}>{open ? "▾" : "▸"}</button>
           <button className="icon" title="Show/hide" onClick={() => run({ type: "layer.update", layerId: layer.id, patch: { visible: !layer.visible } })}>{layer.visible ? "●" : "○"}</button>
           <button className="icon" title="Lock" onClick={() => run({ type: "layer.update", layerId: layer.id, patch: { locked: !layer.locked } })}>{layer.locked ? "🔒" : "·"}</button>
+          <LinkButton layer={layer} linked={linked} />
           <span className="idx">{index + 1}</span>
           <span className={`ltype t-${layer.type}`}>{layer.type[0].toUpperCase()}</span>
           <span

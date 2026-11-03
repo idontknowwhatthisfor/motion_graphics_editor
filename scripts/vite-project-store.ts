@@ -10,6 +10,7 @@
  *   projects/<name>/assets/<file>         imported media (ED-17)
  *   renders/<name>-<comp>.<ext>           exports
  */
+import { spawnSync } from "node:child_process";
 import { cpSync, createReadStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { basename, extname, join, resolve } from "node:path";
@@ -25,6 +26,12 @@ const safeName = (s: string) =>
     .replace(/[^a-zA-Z0-9 _.-]/g, "_")
     .replace(/^\.+/, "")
     .slice(0, 80) || "untitled";
+/** Whether a video file carries sound (ffprobe); null when it cannot be checked. */
+function hasAudioTrack(file: string): boolean | null {
+  if (!/\.(mp4|mov|m4v|webm)$/i.test(file)) return null;
+  const r = spawnSync("ffprobe", ["-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", file], { encoding: "utf8" });
+  return r.status === 0 ? r.stdout.trim().length > 0 : null;
+}
 const MIME: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -188,7 +195,7 @@ export function createStoreMiddleware(cfg: { root: string; bridgeToken: () => st
         let target = join(dir, "assets", file);
         for (let i = 1; existsSync(target); i++) target = join(dir, "assets", `${i}-${file}`);
         writeFileSync(target, await body(req));
-        return json(res, 200, { src: `assets/${basename(target)}` });
+        return json(res, 200, { src: `assets/${basename(target)}`, hasAudio: hasAudioTrack(target) });
       }
       if (path.startsWith("/api/library")) {
         const kind = url.searchParams.get("kind") === "template" ? "template" : "brand";

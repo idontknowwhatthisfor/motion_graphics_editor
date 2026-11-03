@@ -3,6 +3,7 @@
  *   npm run e2e            -> screenshots in renders/e2e/
  * Starts its own Vite dev server on a free port.
  */
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createServer } from "vite";
@@ -134,6 +135,31 @@ await page.keyboard.press("Control+k");
 await page.locator(".modal label", { hasText: "Frame rate" }).locator("input").fill("25");
 await page.locator(".modal button.primary").click();
 check((await page.locator(".viewer-info").textContent())!.includes("25 fps"), "comp settings change the frame rate");
+
+// importing a video with sound adds a linked audio layer; one without sound does not
+const media = join(ROOT, ".cache/e2e-media");
+mkdirSync(media, { recursive: true });
+const ff = (...a: string[]) => spawnSync("ffmpeg", ["-v", "error", "-y", ...a]).status === 0;
+const made =
+  ff("-f", "lavfi", "-i", "color=c=blue:s=320x180:d=2:r=10", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-shortest", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", join(media, "with-sound.mp4")) &&
+  ff("-f", "lavfi", "-i", "color=c=red:s=320x180:d=2:r=10", "-c:v", "libx264", "-pix_fmt", "yuv420p", join(media, "silent.mp4"));
+check(made, "test videos made with FFmpeg");
+const rowsNamed = (n: string) => page.locator(".tl-row.layer", { has: page.locator(".lname", { hasText: n }) });
+await page.locator("input[type=file]").first().setInputFiles(join(media, "with-sound.mp4"));
+await rowsNamed("with-sound.mp4 (sound)").waitFor({ timeout: 15_000 });
+check((await rowsNamed("with-sound.mp4").locator("button.link.on").count()) === 2, "a video with sound imports as a linked video + sound pair");
+await page.locator("input[type=file]").first().setInputFiles(join(media, "silent.mp4"));
+await rowsNamed("silent.mp4").waitFor({ timeout: 15_000 });
+await page.waitForTimeout(500);
+check((await rowsNamed("silent.mp4").count()) === 1 && (await rowsNamed("silent.mp4").locator("button.link.on").count()) === 0, "a video without sound imports as one video layer");
+await rowsNamed("with-sound.mp4 (sound)").locator("button.link.on").click();
+check((await rowsNamed("with-sound.mp4").locator("button.link.on").count()) === 0, "the link icon unlinks the pair");
+await page.keyboard.press("Control+z");
+check((await rowsNamed("with-sound.mp4").locator("button.link.on").count()) === 2, "undo relinks them");
+await rowsNamed("silent.mp4").locator(".lname").click();
+await rowsNamed("with-sound.mp4 (sound)").locator(".lname").click({ modifiers: ["Shift"] });
+await rowsNamed("silent.mp4").locator("button.link").click();
+check((await rowsNamed("silent.mp4").locator("button.link.on").count()) === 1, "the grey link icon links the selected layers");
 
 // save to the local project store
 await page.locator(".viewer").click({ position: { x: 5, y: 5 } });

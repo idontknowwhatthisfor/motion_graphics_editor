@@ -235,7 +235,10 @@ export function muxArgs(video: string, audio: AudioInput[], duration: number, fo
     const ms = Math.round(a.start * 1000);
     return `[${i + 1}:a]atrim=start=${a.offset.toFixed(4)}:duration=${a.duration.toFixed(4)},asetpts=PTS-STARTPTS,volume=${a.volume.toFixed(3)},adelay=${ms}:all=1[a${i}]`;
   });
-  const mix = `${audio.map((_, i) => `[a${i}]`).join("")}amix=inputs=${audio.length}:normalize=0:duration=longest,apad,atrim=0:${duration.toFixed(4)}[aout]`;
+  // asetpts=N/SR/TB: with inputs starting at different times amix's timestamps
+  // are offset, and the time-based atrim then dropped the opening seconds (a
+  // split video's first half went silent). Counting samples restores time 0.
+  const mix = `${audio.map((_, i) => `[a${i}]`).join("")}amix=inputs=${audio.length}:normalize=0:duration=longest,asetpts=N/SR/TB,apad,atrim=0:${duration.toFixed(4)}[aout]`;
   const codec = format === "mp4" ? ["-c:a", "aac", "-b:a", "256k"] : format === "webm" ? ["-c:a", "libopus", "-b:a", "192k"] : ["-c:a", "pcm_s24le"];
   return ["-v", "error", "-y", "-i", video, ...audio.flatMap((a) => ["-i", a.file]), "-filter_complex", [...chains, mix].join(";"), "-map", "0:v", "-map", "[aout]", "-c:v", "copy", ...codec, "-t", duration.toFixed(4), out];
 }

@@ -140,17 +140,19 @@ export async function loadVersion(v: string): Promise<Project> {
   return parseProject(await r.text());
 }
 
-export async function uploadAsset(file: File): Promise<string> {
+/** Upload into the project's assets/. hasAudio: whether a video has sound (null: unknown). */
+export async function uploadAsset(file: File): Promise<{ src: string; hasAudio: boolean | null }> {
   try {
     const r = await fetch(`/api/asset?name=${encodeURIComponent(getUI().projectName)}&file=${encodeURIComponent(file.name)}`, { method: "PUT", body: file });
     if (!r.ok) throw new Error("upload failed");
-    return (await r.json()).src;
+    const { src, hasAudio } = await r.json();
+    return { src, hasAudio: hasAudio ?? null };
   } catch {
     // No local server (static build): embed small files as data URLs.
     if (file.size > 20 * 1024 * 1024) throw new Error("Large media needs the local server (npm run dev)");
     return await new Promise((res) => {
       const fr = new FileReader();
-      fr.onload = () => res(String(fr.result));
+      fr.onload = () => res({ src: String(fr.result), hasAudio: null });
       fr.readAsDataURL(file);
     });
   }
