@@ -53,19 +53,26 @@ async function importFiles(files: FileList | File[]) {
       const kind: Asset["kind"] = isVideo ? "video" : isAudio ? "audio" : file.name.toLowerCase().endsWith(".svg") ? "svg" : "image";
       const asset: Asset = { id: newId("asset"), name: file.name, kind, src, width: dims.w, height: dims.h, ...(dims.d && Number.isFinite(dims.d) ? { duration: dims.d } : {}) };
       const comp = activeComp();
-      const outPoint = dims.d && Number.isFinite(dims.d) && (isVideo || isAudio) ? Math.min(comp.duration, dims.d) : comp.duration;
+      const mediaDur = dims.d && Number.isFinite(dims.d) && (isVideo || isAudio) ? dims.d : undefined;
+      // A clip longer than the comp stretches the comp to fit it, in the same undo step.
+      const stretch = mediaDur !== undefined && mediaDur > comp.duration ? Math.min(3600, mediaDur) : undefined;
+      const outPoint = mediaDur !== undefined ? Math.min(stretch ?? comp.duration, mediaDur) : comp.duration;
       // A video with sound also gets an audio layer that plays the same file, linked so they stay in sync.
       const withSound = isVideo && hasAudio === true;
       const ids = { main: newId("layer"), sound: newId("layer"), link: newId("link") };
+      // A video that is not the comp size is scaled to fit inside it (the whole frame stays visible).
+      const fit = isVideo && dims.w && dims.h && (dims.w !== comp.width || dims.h !== comp.height) ? Math.min(comp.width / dims.w, comp.height / dims.h) * 100 : undefined;
       const r = run(
         [
           { type: "asset.add", asset },
+          ...(stretch !== undefined ? ([{ type: "comp.update", compId: comp.id, duration: stretch }] as const) : []),
           {
             type: "layer.add",
             layerType: isVideo ? "video" : isAudio ? "audio" : "image",
             index: isVideo || isAudio ? comp.layers.length : 0,
             opts: { id: ids.main, name: file.name, assetId: asset.id, width: dims.w, height: dims.h, position: [comp.width / 2, comp.height / 2], outPoint } as MakeLayerOpts,
           },
+          ...(fit !== undefined ? [{ type: "prop.set" as const, layerId: ids.main, path: "transform.scale", value: [fit, fit] as [number, number] }] : []),
           ...(withSound
             ? ([
                 { type: "layer.add", layerType: "audio", index: comp.layers.length + 1, opts: { id: ids.sound, name: `${file.name} (sound)`, assetId: asset.id, outPoint } as MakeLayerOpts },
@@ -77,14 +84,11 @@ async function importFiles(files: FileList | File[]) {
         { label: `Import ${file.name}` },
       );
       if (r.ok) {
-        const id = (r.results[1] as { layerId: string }).layerId;
-        if (isVideo && dims.w && dims.h && (dims.w !== comp.width || dims.h !== comp.height)) {
-          const s = Math.min(comp.width / dims.w, comp.height / dims.h) * 100;
-          run({ type: "prop.set", layerId: id, path: "transform.scale", value: [s, s] }, { coalesceKey: `imp-${id}` });
-        }
+        const id = ids.main;
         if (withSound) toast("Video and its sound added as linked layers. Unlink them with the link icon in the timeline.");
         else if (isVideo) toast("Video added. It is exported; switch it to Reference in the Inspector to keep it out of exports.");
         if (isAudio) toast("Audio added. Select it and use Detect beats to drop beat markers.");
+        if (stretch !== undefined) toast(`Composition lengthened to ${stretch.toFixed(2)} s to fit ${file.name}.`);
         setUI({ selection: [id] });
       }
     } catch (e) {

@@ -152,6 +152,23 @@ await page.locator("input[type=file]").first().setInputFiles(join(media, "silent
 await rowsNamed("silent.mp4").waitFor({ timeout: 15_000 });
 await page.waitForTimeout(500);
 check((await rowsNamed("silent.mp4").count()) === 1 && (await rowsNamed("silent.mp4").locator("button.link.on").count()) === 0, "a video without sound imports as one video layer");
+
+// a clip longer than the comp stretches the comp to fit; one undo takes both back
+const compDuration = async () => {
+  await page.keyboard.press("Control+k");
+  const v = Number(await page.locator(".modal label", { hasText: "Duration" }).locator("input").inputValue());
+  await page.locator(".modal-head button").click();
+  return v;
+};
+check(ff("-f", "lavfi", "-i", "color=c=green:s=64x36:d=40:r=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", join(media, "long.mp4")), "long test video made with FFmpeg");
+const durBefore = await compDuration();
+await page.locator("input[type=file]").first().setInputFiles(join(media, "long.mp4"));
+await rowsNamed("long.mp4").waitFor({ timeout: 15_000 });
+const durAfter = await compDuration();
+check(durBefore < 40 && Math.abs(durAfter - 40) < 0.2, `importing a 40 s clip stretches the comp to fit (${durBefore} s -> ${durAfter} s)`);
+await page.keyboard.press("Control+z");
+await page.waitForTimeout(300);
+check((await rowsNamed("long.mp4").count()) === 0 && (await compDuration()) === durBefore, "one undo removes the clip and restores the comp length");
 await rowsNamed("with-sound.mp4 (sound)").locator("button.link.on").click();
 check((await rowsNamed("with-sound.mp4").locator("button.link.on").count()) === 0, "the link icon unlinks the pair");
 await page.keyboard.press("Control+z");
