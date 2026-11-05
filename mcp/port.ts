@@ -41,6 +41,8 @@ export interface ExportStatus {
   total: number;
   out?: string;
   error?: string;
+  /** Fusion export: layers flattened to PNG frames, values baked, things left out. */
+  notes?: string[];
 }
 
 /** In-process port for tests and scripts. */

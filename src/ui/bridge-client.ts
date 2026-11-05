@@ -5,7 +5,7 @@
  */
 import type { Command } from "../core/commands";
 import { NO_PROJECT_OPEN, serializeProject } from "../core/project-io";
-import { saveProject, startExport } from "./api";
+import { saveProject, startExport, type ExportRequest } from "./api";
 import { editor, getUI, setUI } from "./state";
 
 type Handler = (params: any) => unknown | Promise<unknown>;
@@ -87,7 +87,7 @@ const handlers: Record<string, Handler> = {
     const approved = await new Promise<boolean>((res) => (pendingExport = res));
     if (!approved) throw new Error("The user declined the export");
     await saveProject();
-    return startExport({ format: p.format as "prores4444" | "mp4" | "png" | "webm" | "gif", fps: p.fps, width: p.width });
+    return startExport({ format: p.format as ExportRequest["format"], fps: p.fps, width: p.width });
   },
 };
 

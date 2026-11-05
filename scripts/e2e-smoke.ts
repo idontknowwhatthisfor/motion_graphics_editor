@@ -4,7 +4,7 @@
  * Starts its own Vite dev server on a free port.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createServer } from "vite";
 import { launchBrowser, ROOT } from "./lib/node-export";
@@ -184,6 +184,24 @@ await page.keyboard.press("Control+s");
 await page.waitForTimeout(800);
 const saved = await (await fetch(`${url}api/project?name=e2e-test`)).json();
 check(saved.format === "mge-project" && saved.compositions[0].fps === 25, "project saves to projects/e2e-test/project.json");
+
+// Fusion export from the dialog: a .comp/.setting folder, with the flattened layers listed
+await page.locator(".topbar button.primary", { hasText: "Export" }).click();
+await page.locator(".modal select").selectOption("fusion");
+await page.locator(".modal label", { hasText: "Frame rate" }).locator("input").fill("5"); // few frames to render
+await page.locator(".modal label", { hasText: "Width" }).locator("input").fill("480");
+await page.locator(".modal-foot button.primary", { hasText: "Export" }).click();
+await page.locator("[data-testid=export-notes]").waitFor({ timeout: 180_000 });
+const fusionOut = (await page.locator(".modal .small", { hasText: "Saved to" }).innerText()).replace(/^Saved to\s*/, "").replace(/\s*Show in Finder$/, "").trim();
+const fusionFiles = existsSync(fusionOut) ? readdirSync(fusionOut) : [];
+check(fusionFiles.some((f) => f.endsWith(".comp")) && fusionFiles.some((f) => f.endsWith(".setting")) && fusionFiles.includes("README.txt"), `Fusion export writes .comp, .setting and README (${fusionFiles.join(", ")})`);
+const notesText = await page.locator("[data-testid=export-notes]").innerText();
+check(/rendered to PNG frames because of/.test(notesText), "the export dialog lists the flattened layers");
+const comp = existsSync(fusionOut) ? readFileSync(join(fusionOut, fusionFiles.find((f) => f.endsWith(".comp"))!), "utf8") : "";
+check(/MediaOut1 = MediaOut/.test(comp) && /Width = Input \{ Value = 480 \}/.test(comp), "the .comp has a MediaOut and the chosen export size");
+await page.screenshot({ path: join(out, "02c-fusion-export.png") });
+rmSync(fusionOut, { recursive: true, force: true });
+await page.locator(".modal-head button").click();
 
 // rename: typing slower than the 5 s autosave must not create a folder per keystroke
 await page.keyboard.press("Control+k");

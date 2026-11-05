@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { Browser, Page } from "playwright";
+import { compileToFusion } from "../../src/compiler/fusion";
 import { compileToHyperFrames, exportedAssetPath, type CompiledComposition } from "../../src/compiler/hyperframes";
 import { valueAt } from "../../src/core/interpolate";
 import type { AudioLayer, Project } from "../../src/core/types";
@@ -128,10 +129,10 @@ export async function seekAndShoot(page: Page, t: number): Promise<Buffer> {
   return page.locator("#root").screenshot({ omitBackground: true, type: "png" });
 }
 
-export type ExportFormat = "prores4444" | "mp4" | "png" | "webm" | "gif";
-export const EXPORT_FORMATS: ExportFormat[] = ["prores4444", "mp4", "png", "webm", "gif"];
-/** File extension per format; png is a folder of frames. */
-export const EXPORT_EXT: Record<ExportFormat, string> = { prores4444: ".mov", mp4: ".mp4", png: "", webm: ".webm", gif: ".gif" };
+export type ExportFormat = "prores4444" | "mp4" | "png" | "webm" | "gif" | "fusion";
+export const EXPORT_FORMATS: ExportFormat[] = ["prores4444", "mp4", "png", "webm", "gif", "fusion"];
+/** File extension per format; png is a folder of frames, fusion a folder with the .comp, .setting and media. */
+export const EXPORT_EXT: Record<ExportFormat, string> = { prores4444: ".mov", mp4: ".mp4", png: "", webm: ".webm", gif: ".gif", fusion: "-fusion" };
 export interface ExportOptions {
   format: ExportFormat;
   out: string;
@@ -159,7 +160,8 @@ export function ffmpegArgs(format: ExportFormat, fps: number, out: string): stri
 }
 
 /** Direct export: compile, screenshot every frame, encode. */
-export async function exportDirect(project: Project, projectDir: string, compId: string | undefined, opts: ExportOptions) {
+export async function exportDirect(project: Project, projectDir: string, compId: string | undefined, opts: ExportOptions): Promise<{ out: string; frames: number; notes?: string[] }> {
+  if (opts.format === "fusion") return exportFusion(project, projectDir, compId, opts);
   const comp = project.compositions.find((c) => c.id === (compId ?? project.activeCompId)) ?? project.compositions[0];
   const fps = opts.fps ?? comp.fps;
   const scale = opts.width ? opts.width / comp.width : 1;
@@ -208,6 +210,64 @@ export async function exportDirect(project: Project, projectDir: string, compId:
   } finally {
     await browser.close();
   }
+}
+
+/**
+ * Fusion export: a folder with <comp>.comp (Fusion page: File › Import ›
+ * Fusion Composition), <comp>.setting (paste into a node view), the images
+ * it loads, and PNG sequences of the layers Fusion nodes can't express
+ * (rendered by our renderer with every other layer hidden).
+ */
+export async function exportFusion(project: Project, projectDir: string, compId: string | undefined, opts: ExportOptions) {
+  const comp = project.compositions.find((c) => c.id === (compId ?? project.activeCompId)) ?? project.compositions[0];
+  const out = resolve(opts.out);
+  mkdirSync(out, { recursive: true });
+  const r = compileToFusion(project, { compId: comp.id, fps: opts.fps, width: opts.width, outDir: out });
+  for (const { asset, path } of r.assets) {
+    mkdirSync(dirname(join(out, path)), { recursive: true });
+    copyFileSync(isAbsolute(asset.src) ? asset.src : join(projectDir, asset.src), join(out, path));
+  }
+  const total = Math.max(1, r.groups.reduce((n, g) => n + g.frames, 0));
+  let done = 0;
+  for (const g of r.groups) {
+    // Same project, only this group's layers drawn (matte sources keep their state; parents still move them).
+    const only = new Set(g.layerIds);
+    const mattes = new Set(comp.layers.filter((l) => only.has(l.id) && l.matte).map((l) => l.matte!.layerId));
+    const solo: Project = {
+      ...project,
+      compositions: project.compositions.map((c) =>
+        c.id !== comp.id ? c : { ...c, background: null, layers: c.layers.map((l) => (only.has(l.id) || mattes.has(l.id) ? l : { ...l, visible: false })) },
+      ),
+    };
+    const before = done;
+    await exportDirect(solo, projectDir, comp.id, {
+      format: "png",
+      out: join(out, g.dir),
+      fps: r.fps,
+      width: r.width,
+      signal: opts.signal,
+      onProgress: (d) => opts.onProgress?.(before + d, total),
+    });
+    done += g.frames;
+  }
+  writeFileSync(join(out, `${r.fileName}.comp`), r.comp);
+  writeFileSync(join(out, `${r.fileName}.setting`), r.setting);
+  writeFileSync(
+    join(out, "README.txt"),
+    [
+      `${project.name} / ${comp.name}: ${r.width}x${r.height}, ${r.fps} fps, ${r.frames} frames.`,
+      "",
+      "In DaVinci Resolve:",
+      `  - Whole comp: put a Fusion Composition on the timeline (Effects Library › Toolbox › Effects › Fusion Composition), open it on the Fusion page, then File › Import › Fusion Composition and pick ${r.fileName}.comp.`,
+      `  - Or open ${r.fileName}.setting in a text editor, copy everything and paste it into any Fusion node view, then connect the top Merge to MediaOut.`,
+      "  Keep this folder where it is: the Loaders point at the images and PNG frames inside it.",
+      "",
+      ...(r.notes.length ? ["Notes:", ...r.notes.map((n) => `  - ${n}`)] : []),
+      "",
+    ].join("\n"),
+  );
+  opts.onProgress?.(total, total);
+  return { out, frames: r.frames, notes: r.notes };
 }
 
 type AudioInput = { file: string; start: number; offset: number; duration: number; volume: number };

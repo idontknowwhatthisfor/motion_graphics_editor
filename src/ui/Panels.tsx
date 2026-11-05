@@ -165,7 +165,7 @@ function ExportDialog() {
   const [fps, setFps] = useState(comp.fps);
   const [width, setWidth] = useState(comp.width);
   const [job, setJob] = useState<{ id: string; out: string } | null>(null);
-  const [st, setSt] = useState<{ status: string; done: number; total: number; error?: string } | null>(null);
+  const [st, setSt] = useState<{ status: string; done: number; total: number; error?: string; notes?: string[] } | null>(null);
   const close = () => setUI({ dialog: null });
   useEffect(() => {
     if (!job) return;
@@ -191,8 +191,15 @@ function ExportDialog() {
             <option value="webm">WebM VP9 + alpha (.webm)</option>
             <option value="gif">GIF (1-bit transparency)</option>
             <option value="png">PNG sequence (RGBA)</option>
+            <option value="fusion">Fusion composition for Resolve (.comp + .setting)</option>
           </select>
         </label>
+        {format === "fusion" && (
+          <div className="small muted">
+            Editable Fusion nodes: shapes, text, images, transforms and keyframes. Layers Fusion can't express are rendered to PNG frames and loaded in
+            their place; the list appears here after export. In Resolve: Fusion page › File › Import › Fusion Composition.
+          </div>
+        )}
         <label>Frame rate <input type="number" value={fps} onChange={(e) => setFps(Number(e.target.value))} /></label>
         <label>Width <input type="number" value={width} onChange={(e) => setWidth(Number(e.target.value))} /> × {Math.round((width / comp.width) * comp.height)}</label>
         {st && (
@@ -207,6 +214,16 @@ function ExportDialog() {
           <div className="small">
             Saved to {job.out}{" "}
             {native && <button onClick={() => native!.revealInFinder(job.out)}>Show in Finder</button>}
+          </div>
+        )}
+        {job && st?.status === "done" && !!st.notes?.length && (
+          <div className="small" data-testid="export-notes">
+            <strong>Fusion notes</strong>
+            <ul>
+              {st.notes.map((n, i) => (
+                <li key={i}>{n}</li>
+              ))}
+            </ul>
           </div>
         )}
       </div>
@@ -287,7 +304,7 @@ function AuditDialog() {
 function ExportApproval() {
   const req = useUI((s) => s.exportRequest)!;
   const comp = activeComp(useProject());
-  const fmt = { prores4444: "ProRes 4444 with alpha (.mov)", mp4: "MP4 H.264", png: "PNG sequence", webm: "WebM with alpha", gif: "GIF" }[req.format] ?? req.format;
+  const fmt = { prores4444: "ProRes 4444 with alpha (.mov)", mp4: "MP4 H.264", png: "PNG sequence", webm: "WebM with alpha", gif: "GIF", fusion: "Fusion composition for Resolve" }[req.format] ?? req.format;
   return (
     <Modal title="Claude wants to export" onClose={() => answerExportRequest(false)}>
       <div className="form" data-testid="export-approval">

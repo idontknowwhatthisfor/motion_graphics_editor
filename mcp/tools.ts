@@ -594,9 +594,9 @@ export function registerTools(server: McpServer, port: EditorPort, frames: Frame
   // ----- Deliver (needs the user's approval in the editor) -----
   tool(
     "export_start",
-    "Ask the user to approve an export; on approval it starts and returns a job id. prores4444 = transparent .mov for DaVinci Resolve; webm = VP9 with alpha for the web; gif = small looping preview.",
+    "Ask the user to approve an export; on approval it starts and returns a job id. prores4444 = transparent .mov for DaVinci Resolve; fusion = a folder with an editable Fusion .comp/.setting for Resolve's Fusion page (layers Fusion can't express become PNG frames; the finished job lists them in notes); webm = VP9 with alpha for the web; gif = small looping preview.",
     {
-      format: z.enum(["prores4444", "mp4", "png", "webm", "gif"]).default("prores4444"),
+      format: z.enum(["prores4444", "mp4", "png", "webm", "gif", "fusion"]).default("prores4444"),
       fps: z.number().optional(),
       width: z.number().int().optional(),
       wait: z.boolean().default(false).describe("Keep the call open until the export finishes, reporting progress; cancelling the call cancels the export"),

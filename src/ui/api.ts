@@ -159,7 +159,7 @@ export async function uploadAsset(file: File): Promise<{ src: string; hasAudio: 
 }
 
 export interface ExportRequest {
-  format: "prores4444" | "mp4" | "png" | "webm" | "gif";
+  format: "prores4444" | "mp4" | "png" | "webm" | "gif" | "fusion";
   fps?: number;
   width?: number;
 }
@@ -175,7 +175,7 @@ export async function startExport(req: ExportRequest): Promise<{ id: string; out
 }
 export async function exportStatus(id: string) {
   const r = await fetch(`/api/export/status?id=${encodeURIComponent(id)}`);
-  return r.json() as Promise<{ status: string; done: number; total: number; out: string; error?: string }>;
+  return r.json() as Promise<{ status: string; done: number; total: number; out: string; error?: string; notes?: string[] }>;
 }
 export async function cancelExport(id: string) {
   await fetch(`/api/export/cancel?id=${encodeURIComponent(id)}`, { method: "POST" });

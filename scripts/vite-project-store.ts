@@ -75,6 +75,8 @@ interface ExportJob {
   total: number;
   out: string;
   error?: string;
+  /** Fusion export: what was flattened, baked or left out. */
+  notes?: string[];
   abort: AbortController;
 }
 const jobs = new Map<string, ExportJob>();
@@ -266,7 +268,10 @@ export function createStoreMiddleware(cfg: { root: string; bridgeToken: () => st
           signal: job.abort.signal,
           onProgress: (d: number, t: number) => ((job.done = d), (job.total = t)),
         })
-          .then(() => (job.status = "done"))
+          .then((r: { notes?: string[] }) => {
+            job.notes = r.notes;
+            job.status = "done";
+          })
           .catch((e: Error) => {
             job.status = job.abort.signal.aborted ? "cancelled" : "failed";
             job.error = e.message;
