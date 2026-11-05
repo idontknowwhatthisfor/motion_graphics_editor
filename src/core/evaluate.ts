@@ -462,7 +462,7 @@ function exprContext(comp: Composition, o: Owner, p: Prop, t: number, base: Anim
   };
 }
 
-function expressionHook(comp: Composition, brand?: BrandKit): ExpressionHook {
+export function expressionHook(comp: Composition, brand?: BrandKit): ExpressionHook {
   const map = owners(comp);
   const active = new Set<Prop>();
   return (p, t, base) => {
