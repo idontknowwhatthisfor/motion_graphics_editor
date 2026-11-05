@@ -175,6 +175,20 @@ skill/motion-graphics-editor/SKILL.md (format, units, paths, motion
 conventions); `npm run mcp:setup` installs it in ~/.claude/skills and zips
 it for the desktop app; also served as resource mge://skill.
 
+Fusion export (kp asked; not in the PRD): format `fusion` writes
+renders/<name>-<comp>-<time>-fusion/ with <comp>.comp (Resolve Fusion page:
+File › Import › Fusion Composition), <comp>.setting (paste into a node view),
+README and media. src/compiler/fusion.ts is pure: shapes/solids ->
+Background + Rectangle/Ellipse/PolylineMask, text -> Text+, PNG/JPG ->
+Loader, one Transform per layer and ancestor (Pivot = anchor, drawn at a rest
+position; math in the file header), Merge Blend/ApplyMode; easing -> spline
+handles, holds -> extra key, expressions/curved paths baked per frame.
+Anything else is flattened to a PNG sequence (node-export.ts exportFusion)
+and listed in the job's `notes` (shown in the dialog). tests/fusion.test.ts
+models Fusion's nodes against the evaluator and parses the files with
+Resolve's fuscript when installed. Unconfirmed in Resolve until kp checks:
+mask/Text+ sizes in image-width units, Text+ vertical placement.
+
 Milestone 2 (P1) is complete. Then, in PRD order:
 1. Resolve-ready export polish and Gate 1 (kp finishes a 15 s overlay by hand).
 2. Mask path and gradient handles in the viewer; local font list.
