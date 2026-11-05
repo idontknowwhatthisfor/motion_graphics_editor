@@ -186,8 +186,9 @@ handles, holds -> extra key, expressions/curved paths baked per frame.
 Anything else is flattened to a PNG sequence (node-export.ts exportFusion)
 and listed in the job's `notes` (shown in the dialog). tests/fusion.test.ts
 models Fusion's nodes against the evaluator and parses the files with
-Resolve's fuscript when installed. Unconfirmed in Resolve until kp checks:
-mask/Text+ sizes in image-width units, Text+ vertical placement.
+Resolve's fuscript when installed. kp confirmed on 5 Nov 2026 that the
+lower-third .comp looks right in Resolve's Fusion page (sizes in image-width
+units, pivots, text placement, PNG alpha).
 
 Milestone 2 (P1) is complete. Then, in PRD order:
 1. Resolve-ready export polish and Gate 1 (kp finishes a 15 s overlay by hand).
